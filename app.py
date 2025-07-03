@@ -19,6 +19,7 @@ from cobranca import layout as layout_cobranca
 from sheets_api import carregar_dados
 
 app = Dash(__name__, suppress_callback_exceptions=True)
+server = app.server # Adicionado para compatibilidade com o Gunicorn
 app.title = "Portal MercoCamp"
 
 # --- LAYOUT PRINCIPAL ---
@@ -510,7 +511,7 @@ def atualizar_kpis_cobranca(pathname):
     
     # Análise de 2025
     df_2025 = df_full[df_full['Vencimento'].dt.year == 2025].copy()
-    portfolio_2025 = df_2025[df_2025['DIAS_DE_ATRASO'] > 0] # MUDANÇA 1: Regra de > 0 dias
+    portfolio_2025 = df_2025[df_2025['DIAS_DE_ATRASO'] > 0]
     total_devido_2025 = portfolio_2025['Vlr_Titulo'].sum()
     recuperado_2025_df = portfolio_2025[portfolio_2025['Data_Pagamento'].notna()]
     total_recuperado_2025 = recuperado_2025_df['Vlr_Recebido'].sum()
@@ -521,7 +522,7 @@ def atualizar_kpis_cobranca(pathname):
 
     # Análise de 2024
     df_2024 = df_full[df_full['Vencimento'].dt.year == 2024].copy()
-    portfolio_2024 = df_2024[df_2024['DIAS_DE_ATRASO'] > 0] # MUDANÇA 1: Regra de > 0 dias
+    portfolio_2024 = df_2024[df_2024['DIAS_DE_ATRASO'] > 0]
     total_devido_2024 = portfolio_2024['Vlr_Titulo'].sum()
     total_recuperado_2024 = portfolio_2024[portfolio_2024['Data_Pagamento'].notna()]['Vlr_Recebido'].sum()
     taxa_recuperacao_2024 = (total_recuperado_2024 / total_devido_2024) * 100 if total_devido_2024 > 0 else 0
@@ -564,7 +565,7 @@ def atualizar_recebimentos_cobranca(pathname):
     df_full = preparar_dataframe_completo()
     recuperados_2025 = df_full[
         (df_full['Vencimento'].dt.year == 2025) &
-        (df_full['DIAS_DE_ATRASO'] > 0) & # MUDANÇA 1: Regra de > 0 dias
+        (df_full['DIAS_DE_ATRASO'] > 0) &
         (df_full['Data_Pagamento'].notna())
     ]
     if recuperados_2025.empty:
@@ -588,7 +589,7 @@ def atualizar_rankings_cobranca(pathname):
     
     recuperados_2025 = df_full[
         (df_full['Vencimento'].dt.year == 2025) &
-        (df_full['DIAS_DE_ATRASO'] > 0) & # MUDANÇA 1: Regra de > 0 dias
+        (df_full['DIAS_DE_ATRASO'] > 0) &
         (df_full['Data_Pagamento'].notna())
     ].copy()
 
@@ -614,7 +615,6 @@ def atualizar_rankings_cobranca(pathname):
             html.Table([html.Thead(html.Tr(header)), html.Tbody(rows)], className="table table-sm table-striped")
         ], style={'flex': 1, 'minWidth': '300px'})
 
-    # MUDANÇA 2: Correção do header da tabela
     tabela_antigos = criar_tabela_ranking(
         "Top 10 Títulos Mais Antigos Recuperados", top_10_antigos, 
         {"Vencimento": ("Vencimento", lambda x: x.strftime('%d/%m/%Y')), "Cliente": ("Clientes", lambda x: x), "Valor Recuperado": ("Vlr_Recebido", lambda x: f"R$ {x:,.2f}")}
@@ -628,7 +628,6 @@ def atualizar_rankings_cobranca(pathname):
         {"Cliente": ("Clientes", lambda x: x), "Média de Atraso": ("DIAS_DE_ATRASO", lambda x: f"{x:.0f} dias")}
     )
 
-    # MUDANÇA 3: Reorganização do layout das tabelas
     return html.Div([
         html.H3("Rankings de Recuperação (2025)", style={'textAlign': 'center', 'marginTop': '40px'}),
         html.Div([tabela_antigos, tabela_valores, tabela_campeoes], style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'})
