@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL E COMPLETA COM MÓDULO COBRANÇA)
+# app.py (VERSÃO FINAL COM CACHE DE DADOS)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -8,6 +8,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import plotly.graph_objects as go
+from functools import lru_cache # NOVO: Importa a função de cache
 
 # Importe os layouts e a função de carregar dados
 import login
@@ -19,7 +20,7 @@ from cobranca import layout as layout_cobranca
 from sheets_api import carregar_dados
 
 app = Dash(__name__, suppress_callback_exceptions=True)
-server = app.server # Adicionado para compatibilidade com o Gunicorn
+server = app.server
 app.title = "Portal MercoCamp"
 
 # --- LAYOUT PRINCIPAL ---
@@ -75,8 +76,10 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
     return dash.no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
 
 # --- FUNÇÃO AUXILIAR PARA PREPARAR O DATAFRAME COMPLETO ---
+@lru_cache(maxsize=None) # NOVO: Ativa o cache para esta função
 def preparar_dataframe_completo():
     """Carrega e prepara o dataframe com todas as limpezas e cálculos necessários."""
+    print("CARREGANDO DADOS DO GOOGLE SHEETS...") # Mensagem para vermos no log
     df = carregar_dados("BaseReceber2025", "BaseReceber")
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
@@ -106,6 +109,7 @@ def preparar_dataframe_completo():
         hoje = pd.to_datetime("today").normalize()
         em_aberto_vencidas = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
         df.loc[em_aberto_vencidas, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas, 'Vencimento']).dt.days
+    print("DADOS CARREGADOS E PROCESSADOS.")
     return df
 
 # --- FUNÇÃO AUXILIAR PARA FILTRAR DADOS ---
