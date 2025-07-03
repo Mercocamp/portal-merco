@@ -1,0 +1,45 @@
+.cd-link-button, .cd-summary-header {
+    display: block;
+    padding: 15px 20px;
+    margin: 10px auto;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #333;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    max-width: 400px;
+}
+
+.cd-link-button:hover, .cd-summary-header:hover {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.cd-details-group {
+    margin-bottom: 10px;
+}
+
+.cd-details-group[open] .cd-summary-header {
+    background-color: #0056b3;
+    color: white;
+}
+
+.cd-submenu-container {
+    padding: 10px;
+    background-color: #f0f0f0;
+    border-radius: 0 0 8px 8px;
+    margin: -10px auto 10px;
+    max-width: 400px;
+}
+
+.cd-submenu-container .cd-link-button {
+    background-color: #e9ecef;
+    font-weight: normal;
+}

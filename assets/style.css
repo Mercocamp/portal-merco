@@ -1,0 +1,137 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background-color: #f5f7fa;
+}
+
+/* Botões padrão estilo iOS */
+button {
+    background: linear-gradient(to bottom, #007bff, #005fc3);
+    color: white;
+    border: none;
+    border-radius: 18px;
+    padding: 12px 24px;
+    font-size: 15px;
+    font-weight: bold;
+    margin: 10px;
+    transition: all 0.2s ease-in-out;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+button:hover {
+    background: linear-gradient(to bottom, #339dff, #0072e3);
+    transform: scale(1.05);
+    cursor: pointer;
+}
+
+button:active {
+    transform: scale(0.97);
+}
+
+/* Dropdown do Dash (estilizado) */
+.Select-control {
+    border-radius: 12px !important;
+    border: 1px solid #ccc !important;
+    padding: 6px 10px;
+    font-size: 14px;
+    background-color: white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.Select-menu-outer {
+    border-radius: 12px !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+/* Adicione este código ao seu arquivo assets/style.css */
+
+/* Estilo para a página inteira do menu */
+.menu-page-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+    background: #f0f2f5; /* Um cinza claro, comum em dashboards */
+    /* A fonte "-apple-system" é a fonte padrão do iOS/macOS, criando o "estilo iPhone" */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Cabeçalho que contém o título e a saudação */
+.menu-header {
+    text-align: center;
+    margin-bottom: 4rem;
+}
+
+/* Estilo do título principal "PORTAL MERCOCAMP" */
+.menu-title {
+    font-size: 2.5rem;
+    font-weight: 600;
+    color: #007bff; /* Azul que você pediu */
+    letter-spacing: 1px;
+}
+
+/* Estilo do texto de saudação (Bom dia, etc.) */
+.greeting-text {
+    font-size: 1.1rem;
+    color: #555;
+    margin-top: 0.5rem;
+    min-height: 20px; /* Garante espaço mesmo antes do JS carregar */
+}
+
+/* Grade que organiza os botões */
+.menu-grid {
+    display: grid;
+    /* Cria colunas responsivas. Em telas pequenas, fica uma coluna. Em telas maiores, até 6. */
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 1000px;
+}
+
+/* Estilo individual de cada botão do menu */
+.menu-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+    border-radius: 20px;
+    border: none;
+    background-color: #ffffff;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    cursor: pointer;
+    transition: all 0.3s ease; /* Animação suave para todas as propriedades */
+    color: #333;
+    font-size: 1rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+/* Animação ao passar o mouse sobre o botão */
+.menu-button:hover {
+    transform: translateY(-8px); /* Levanta o botão */
+    box-shadow: 0 10px 20px rgba(0, 123, 255, 0.2); /* Sombra azulada */
+    background-color: #007bff; /* Muda o fundo para azul */
+    color: white; /* Muda o texto para branco */
+}
+
+/* Ícone dentro do botão (emoji) */
+.menu-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.8rem;
+}
+@keyframes girar {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+/* Remove o sublinhado dos links usados como botões no Dash */
+.menu-button,
+.menu-button:hover,
+.menu-button:focus {
+    text-decoration: none;
+}
+.dropdown-competencia {
+    width: 250px;
+    border-radius: 10px;
+    font-weight: bold;
+}
