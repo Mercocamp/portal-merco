@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL COM CACHE DE DADOS)
+# app.py (VERSÃO FINAL E COMPLETA COM MÓDULO COBRANÇA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import plotly.graph_objects as go
-from functools import lru_cache # NOVO: Importa a função de cache
+from functools import lru_cache
 
 # Importe os layouts e a função de carregar dados
 import login
@@ -76,13 +76,14 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
     return dash.no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
 
 # --- FUNÇÃO AUXILIAR PARA PREPARAR O DATAFRAME COMPLETO ---
-@lru_cache(maxsize=None) # NOVO: Ativa o cache para esta função
+@lru_cache(maxsize=1)
 def preparar_dataframe_completo():
     """Carrega e prepara o dataframe com todas as limpezas e cálculos necessários."""
-    print("CARREGANDO DADOS DO GOOGLE SHEETS...") # Mensagem para vermos no log
+    print("INICIANDO CARGA DE DADOS DO GOOGLE SHEETS...")
     df = carregar_dados("BaseReceber2025", "BaseReceber")
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
+    
     text_cols = ['Clientes', 'Competencia', 'Tipo_Resumido', 'Lotacao']
     for col in text_cols:
         if col in df.columns:
@@ -96,12 +97,18 @@ def preparar_dataframe_completo():
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     def parse_mixed_date(date_val):
-        try: return pd.to_datetime('1899-12-30') + pd.to_timedelta(int(float(date_val)), 'D')
-        except (ValueError, TypeError): return pd.to_datetime(date_val, dayfirst=True, errors='coerce')
+        if pd.isnull(date_val) or str(date_val).strip() == '':
+            return pd.NaT
+        try:
+            return pd.to_datetime('1899-12-30') + pd.to_timedelta(int(float(date_val)), 'D')
+        except (ValueError, TypeError):
+            return pd.to_datetime(date_val, dayfirst=True, errors='coerce')
+
     date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
     for col in date_cols:
         if col in df.columns:
             df[col] = df[col].apply(parse_mixed_date)
+
     if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
         df['DIAS_DE_ATRASO'] = 0
         pagas = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
@@ -109,7 +116,8 @@ def preparar_dataframe_completo():
         hoje = pd.to_datetime("today").normalize()
         em_aberto_vencidas = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
         df.loc[em_aberto_vencidas, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas, 'Vencimento']).dt.days
-    print("DADOS CARREGADOS E PROCESSADOS.")
+    
+    print("DADOS CARREGADOS E PROCESSADOS COM SUCESSO.")
     return df
 
 # --- FUNÇÃO AUXILIAR PARA FILTRAR DADOS ---
