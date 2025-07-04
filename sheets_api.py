@@ -3,6 +3,7 @@
 import gspread
 import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
+import os  # <- movi para cima para manter organizado
 
 def carregar_dados(planilha_nome: str, aba_nome: str) -> pd.DataFrame:
     """
@@ -12,7 +13,14 @@ def carregar_dados(planilha_nome: str, aba_nome: str) -> pd.DataFrame:
     """
     escopo = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-    credenciais = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", escopo)
+    # Verifica se está no Render (com o arquivo secreto)
+    if os.path.exists('/etc/secrets/credentials.json'):
+        caminho_credenciais = '/etc/secrets/credentials.json'
+    else:
+        # Rodando localmente
+        caminho_credenciais = 'credentials.json'
+
+    credenciais = ServiceAccountCredentials.from_json_keyfile_name(caminho_credenciais, escopo)
     cliente = gspread.authorize(credenciais)
 
     planilha = cliente.open(planilha_nome)
@@ -20,7 +28,6 @@ def carregar_dados(planilha_nome: str, aba_nome: str) -> pd.DataFrame:
     
     # --- ALTERAÇÃO PRINCIPAL AQUI ---
     # Pedimos ao Google os valores como números puros (ex: 6200) e não como texto formatado (ex: "R$ 6.200,00").
-    # Isso resolve a raiz do problema de cálculo.
     dados = aba.get_all_records(value_render_option='UNFORMATTED_VALUE')
 
     df = pd.DataFrame(dados)
