@@ -1,4 +1,4 @@
-# sheets_api.py (VERSÃO PARA PRODUÇÃO COM DIAGNÓSTICOS)
+# sheets_api.py (VERSÃO PARA PRODUÇÃO COM LIMITE DE TESTE)
 
 import os
 import gspread
@@ -30,17 +30,20 @@ def carregar_dados(planilha_nome: str, aba_nome: str) -> pd.DataFrame:
         dados = aba.get_all_records(value_render_option='UNFORMATTED_VALUE')
         df = pd.DataFrame(dados)
 
-        # --- DIAGNÓSTICOS ADICIONADOS ---
-        print(f"✅ Planilha '{planilha_nome} | {aba_nome}' carregada com {len(df)} linhas e {len(df.columns)} colunas.")
+        print(f"✅ Planilha '{planilha_nome} | {aba_nome}' carregada com {len(df)} linhas.")
+        
+        # --- LIMITE TEMPORÁRIO PARA TESTE NO RENDER ---
+        # Se o dataframe for muito grande, pegamos apenas as 500 linhas mais recentes para teste
+        if len(df) > 500:
+            df = df.tail(500).copy()
+            print(f"✅ APLICANDO LIMITE DE TESTE. {len(df)} LINHAS SERÃO USADAS.")
+        # -------------------------------------------------
+
         if not df.empty:
-            print(f"📄 Colunas: {df.columns.tolist()}")
-            print(" primeiras 5 linhas:")
-            print(df.head(5))
             df.columns = df.columns.str.strip()
-        # ------------------------------------
 
         return df
     except Exception as e:
-        error_message = f"❌ Erro ao carregar dados do Sheets: {e}. Verifique o caminho ('{creds_path}') e as permissões da planilha."
+        error_message = f"❌ Erro ao carregar dados do Sheets: {e}."
         print(error_message)
         return pd.DataFrame({'Erro': [error_message]})

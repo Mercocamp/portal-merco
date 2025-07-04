@@ -81,12 +81,6 @@ def preparar_dataframe_completo():
     """Carrega e prepara o dataframe com todas as limpezas e cálculos necessários."""
     print("INICIANDO CARGA DE DADOS DO GOOGLE SHEETS...")
     df = carregar_dados("BaseReceber2025", "BaseReceber")
-
-    # PATCH TEMPORÁRIO: limitar linhas no Render para evitar timeout
-    print(f"🔄 Linhas antes do limite: {len(df)}")
-    df = df.head(500)  # ⚠️ Só pega as primeiras 500 linhas
-    print(f"✅ Linhas carregadas para teste: {len(df)}")
-
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
     
@@ -102,18 +96,16 @@ def preparar_dataframe_completo():
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-def parse_mixed_date(date_val):
-    try:
+    def parse_mixed_date(date_val):
         if pd.isna(date_val) or str(date_val).strip() == '':
             return pd.NaT
-        # Caso seja número (tipo Excel)
-        if isinstance(date_val, (int, float)):
-            return pd.to_datetime('1899-12-30') + pd.to_timedelta(int(date_val), unit='D')
-        # Caso seja string
-        return pd.to_datetime(str(date_val), dayfirst=True, errors='coerce')
-    except Exception as e:
-        print(f"⚠️ Erro ao converter '{date_val}': {e}")
-        return pd.NaT
+        try:
+            return pd.to_datetime('1899-12-30') + pd.to_timedelta(int(float(date_val)), 'D')
+        except (ValueError, TypeError):
+            try:
+                return pd.to_datetime(date_val, dayfirst=True, errors='coerce')
+            except Exception:
+                return pd.NaT
 
     date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
     for col in date_cols:
