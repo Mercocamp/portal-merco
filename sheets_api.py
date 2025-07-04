@@ -1,38 +1,46 @@
-# sheets_api.py (VERSÃO CORRIGIDA)
+# sheets_api.py (VERSÃO PARA PRODUÇÃO COM DIAGNÓSTICOS)
 
+import os
 import gspread
 import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
-import os  # <- movi para cima para manter organizado
+
+RENDER_SECRETS_PATH = "/etc/secrets/credentials.json"
+LOCAL_SECRETS_PATH = "credentials.json"
 
 def carregar_dados(planilha_nome: str, aba_nome: str) -> pd.DataFrame:
     """
-    Carrega dados de uma planilha do Google Sheets.
-    A principal alteração é o uso de 'value_render_option' para obter
-    os valores numéricos puros, em vez de texto formatado.
+    Carrega dados de uma planilha do Google Sheets, adaptando-se
+    ao ambiente de produção (Render) ou desenvolvimento local.
     """
     escopo = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-    # Verifica se está no Render (com o arquivo secreto)
-    if os.path.exists('/etc/secrets/credentials.json'):
-        caminho_credenciais = '/etc/secrets/credentials.json'
+    if os.path.exists(RENDER_SECRETS_PATH):
+        creds_path = RENDER_SECRETS_PATH
     else:
-        # Rodando localmente
-        caminho_credenciais = 'credentials.json'
+        creds_path = LOCAL_SECRETS_PATH
 
-    credenciais = ServiceAccountCredentials.from_json_keyfile_name(caminho_credenciais, escopo)
-    cliente = gspread.authorize(credenciais)
+    try:
+        credenciais = ServiceAccountCredentials.from_json_keyfile_name(creds_path, escopo)
+        cliente = gspread.authorize(credenciais)
 
-    planilha = cliente.open(planilha_nome)
-    aba = planilha.worksheet(aba_nome)
-    
-    # --- ALTERAÇÃO PRINCIPAL AQUI ---
-    # Pedimos ao Google os valores como números puros (ex: 6200) e não como texto formatado (ex: "R$ 6.200,00").
-    dados = aba.get_all_records(value_render_option='UNFORMATTED_VALUE')
+        planilha = cliente.open(planilha_nome)
+        aba = planilha.worksheet(aba_nome)
+        
+        dados = aba.get_all_records(value_render_option='UNFORMATTED_VALUE')
+        df = pd.DataFrame(dados)
 
-    df = pd.DataFrame(dados)
+        # --- DIAGNÓSTICOS ADICIONADOS ---
+        print(f"✅ Planilha '{planilha_nome} | {aba_nome}' carregada com {len(df)} linhas e {len(df.columns)} colunas.")
+        if not df.empty:
+            print(f"📄 Colunas: {df.columns.tolist()}")
+            print(" primeiras 5 linhas:")
+            print(df.head(5))
+            df.columns = df.columns.str.strip()
+        # ------------------------------------
 
-    # Garante que os nomes das colunas não tenham espaços extras
-    df.columns = df.columns.str.strip()
-
-    return df
+        return df
+    except Exception as e:
+        error_message = f"❌ Erro ao carregar dados do Sheets: {e}. Verifique o caminho ('{creds_path}') e as permissões da planilha."
+        print(error_message)
+        return pd.DataFrame({'Erro': [error_message]})

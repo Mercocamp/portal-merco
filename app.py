@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL E COMPLETA COM MÓDULO COBRANÇA)
+# app.py (VERSÃO FINAL COM OTIMIZAÇÕES E CACHE)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -97,7 +97,7 @@ def preparar_dataframe_completo():
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     def parse_mixed_date(date_val):
-        if pd.isnull(date_val) or str(date_val).strip() == '':
+        if pd.isna(date_val) or str(date_val).strip() == '':
             return pd.NaT
         try:
             return pd.to_datetime('1899-12-30') + pd.to_timedelta(int(float(date_val)), 'D')
