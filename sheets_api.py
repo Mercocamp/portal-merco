@@ -1,4 +1,4 @@
-# sheets_api.py (VERSÃO FINAL SEM LIMITE)
+# sheets_api.py (VERSÃO PARA PRODUÇÃO COM LIMITE DE TESTE)
 
 import os
 import gspread
@@ -30,8 +30,15 @@ def carregar_dados(planilha_nome: str, aba_nome: str) -> pd.DataFrame:
         dados = aba.get_all_records(value_render_option='UNFORMATTED_VALUE')
         df = pd.DataFrame(dados)
 
-        print(f"✅ Planilha '{planilha_nome} | {aba_nome}' carregada com {len(df)} linhas e {len(df.columns)} colunas.")
+        print(f"✅ Planilha '{planilha_nome} | {aba_nome}' carregada com {len(df)} linhas.")
         
+        # --- LIMITE TEMPORÁRIO PARA TESTE NO RENDER ---
+        # Se o dataframe for muito grande, pegamos apenas as 500 linhas mais recentes para teste
+        if len(df) > 500:
+            df = df.tail(500).copy()
+            print(f"✅ APLICANDO LIMITE DE TESTE. {len(df)} LINHAS SERÃO USADAS.")
+        # -------------------------------------------------
+
         if not df.empty:
             df.columns = df.columns.str.strip()
 
