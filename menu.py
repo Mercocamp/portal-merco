@@ -25,7 +25,7 @@ links = [
 layout = html.Div(className='menu-page-container', children=[
     html.Div(className='menu-header', children=[
         html.H1("PORTAL MERCOCAMP", className='menu-title'),
-        html.P(id='greeting-message', className='greeting-text') # Adicionado ID para o JS
+        html.P(id='greeting-message', className='greeting-text')
     ]),
     
     html.Div(className='menu-grid', children=links),
