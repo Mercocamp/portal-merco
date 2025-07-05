@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL COM CACHE INTELIGENTE)
+# app.py (VERSÃO FINAL E COMPLETA COM MÓDULO COBRANÇA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -76,25 +76,10 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
     return dash.no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
 
 # --- FUNÇÃO AUXILIAR PARA PREPARAR O DATAFRAME COMPLETO ---
+@lru_cache(maxsize=1)
 def preparar_dataframe_completo():
-    """
-    Função principal que chama a versão em cache.
-    Cria uma chave de cache baseada na hora atual, arredondada para baixo a cada 3 horas.
-    Isso força a atualização dos dados a cada 3 horas.
-    """
-    # Arredonda a hora atual para o último múltiplo de 3 (0, 3, 6, 9, ...)
-    hora_arredondada = (datetime.now().hour // 3) * 3
-    # Cria uma chave única para o dia e o bloco de 3 horas
-    cache_key = datetime.now().strftime(f'%Y-%m-%d-{hora_arredondada}')
-    return _preparar_dataframe_com_cache(cache_key)
-
-@lru_cache(maxsize=8) # Armazena os dados das últimas 24 horas (8 blocos de 3 horas)
-def _preparar_dataframe_com_cache(cache_key: str):
-    """
-    Esta é a função que realmente faz o trabalho pesado e cujo resultado é cacheado.
-    O 'cache_key' garante que ela só seja executada quando a hora mudar.
-    """
-    print(f"CACHE MISS: Gerando novos dados para a chave: {cache_key}")
+    """Carrega e prepara o dataframe com todas as limpezas e cálculos necessários."""
+    print("INICIANDO CARGA DE DADOS DO GOOGLE SHEETS...")
     df = carregar_dados("BaseReceber2025", "BaseReceber")
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
