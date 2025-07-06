@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL COM ARQUITETURA CORRIGIDA)
+# app.py (VERSÃO FINAL, COMPLETA E CORRIGIDA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -18,8 +18,7 @@ import operacao
 from faturamento import layout as layout_faturamento
 from contas_receber import layout as layout_contas_receber
 from cobranca import layout as layout_cobranca
-# ALTERAÇÃO: Importa o layout estático de desempenho
-from desempenho import layout as layout_desempenho
+from desempenho import layout as layout_desempenho # Importa o layout estático
 from sheets_api import carregar_dados
 
 app = Dash(__name__, suppress_callback_exceptions=True, assets_folder='assets')
@@ -30,28 +29,16 @@ app.title = "Portal MercoCamp"
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     dcc.Store(id='competencia-store'),
-    dcc.Loading(
-        id="global-spinner",
-        type="default",
-        color="#007bff",
-        fullscreen=True,
-        children=html.Div(id='pagina-container')
-    )
+    dcc.Loading(id="global-spinner", type="default", color="#007bff", fullscreen=True, children=html.Div(id='pagina-container'))
 ])
 
-# --- FUNÇÕES DE PREPARAÇÃO DE DADOS (LÓGICA CENTRAL OTIMIZADA) ---
-
+# --- FUNÇÕES DE PREPARAÇÃO DE DADOS ---
 @lru_cache(maxsize=8)
 def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
-    """
-    Função central que carrega e processa os dados.
-    Filtra os dados ANTES do processamento pesado se full_history for False.
-    """
     print(f"CACHE MISS: Gerando dados para a chave: {cache_key} (Histórico Completo: {full_history})")
     df = carregar_dados("BaseReceber2025", "BaseReceber")
-    if df.empty or 'Erro' in df.columns:
-        return df
-
+    if df.empty or 'Erro' in df.columns: return df
+    
     if not full_history:
         hoje = pd.to_datetime("today").normalize()
         data_limite = hoje - relativedelta(years=2)
@@ -64,28 +51,25 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
         df = df[final_mask].copy()
         print(f"Filtrado para os últimos 2 anos. {len(df)} linhas para processar.")
 
-    if 'Cliente' in df.columns and 'Clientes' not in df.columns:
-        df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
+    if 'Cliente' in df.columns and 'Clientes' not in df.columns: df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
     
     text_cols = ['Clientes', 'Competencia', 'Tipo_Resumido', 'Lotacao']
     for col in text_cols:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
-            if col == 'Tipo_Resumido':
-                df[col] = df[col].str.lower()
-    
+            if col == 'Tipo_Resumido': df[col] = df[col].str.lower()
+            
     numeric_cols = ['Vlr_Titulo', 'Vlr_Recebido']
     for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
+        if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
     date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
     for col in date_cols:
         if col in df.columns:
             s_numeric = pd.to_numeric(df[col], errors='coerce')
             s_datetime = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
             df[col] = s_datetime.fillna(pd.to_datetime('1899-12-30') + pd.to_timedelta(s_numeric, 'D'))
-
+            
     if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
         df['DIAS_DE_ATRASO'] = 0
         pagas = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
@@ -93,25 +77,21 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
         hoje = pd.to_datetime("today").normalize()
         em_aberto_vencidas = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
         df.loc[em_aberto_vencidas, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas, 'Vencimento']).dt.days
-    
+        
     print(f"DADOS PROCESSADOS COM SUCESSO. {len(df)} linhas.")
     return df
 
 def get_cache_key(full_history: bool):
-    hora_arredondada = (datetime.now().hour // 1) * 1
+    hora_arredondada = datetime.now().hour
     return f"{datetime.now().strftime('%Y-%m-%d')}-{hora_arredondada}-full:{full_history}"
+def get_recent_df(): return _preparar_dataframe_com_cache(get_cache_key(False), full_history=False)
+def get_full_df(): return _preparar_dataframe_com_cache(get_cache_key(True), full_history=True)
 
-def get_recent_df():
-    return _preparar_dataframe_com_cache(get_cache_key(False), full_history=False)
-
-def get_full_df():
-    return _preparar_dataframe_com_cache(get_cache_key(True), full_history=True)
-
-# --- CALLBACKS GERAIS (ROTEAMENTO, LOGIN, ATUALIZAÇÃO DE CACHE) ---
+# --- CALLBACKS GERAIS ---
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
     if pathname == '/menu': 
-        get_recent_df() # Pré-aquece o cache de dados recentes
+        get_recent_df()
         return menu.layout
     if pathname == '/faturamento': return layout_faturamento
     if pathname == '/operacao': return operacao.layout
@@ -137,18 +117,14 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
         return '/menu', ""
     return dash.no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
 
-@app.callback(
-    Output('refresh-status', 'children'),
-    Input('btn-refresh-cache', 'n_clicks'),
-    prevent_initial_call=True
-)
+@app.callback(Output('refresh-status', 'children'), Input('btn-refresh-cache', 'n_clicks'), prevent_initial_call=True)
 def atualizar_cache(n_clicks):
     try:
         _preparar_dataframe_com_cache.cache_clear()
         get_recent_df()
-        return f"✅ Cache atualizado com sucesso às {datetime.now().strftime('%H:%M:%S')}."
+        return f"✅ Cache atualizado: {datetime.now().strftime('%H:%M:%S')}."
     except Exception as e:
-        return f"❌ Erro ao atualizar cache: {str(e)}"
+        return f"❌ Erro ao atualizar: {str(e)}"
 
 def filtrar_dados_por_contexto(df, pathname):
     if 'Lotacao' not in df.columns: return df, "Faturamento Geral", html.Div("Erro Crítico: A coluna 'Lotacao' não foi encontrada.", style={'color': 'red'})
@@ -490,14 +466,13 @@ def atualizar_rankings_cobranca(pathname):
 
 # --- CALLBACKS DE DESEMPENHO (COM ARQUITETURA ASSÍNCRONA) ---
 @app.callback(
-    Output('desempenho-page-content', 'children'),
+    Output('desempenho-content-wrapper', 'children'),
     Input('url', 'pathname')
 )
-def render_desempenho_page(pathname):
+def load_desempenho_interactive_layout(pathname):
     if pathname != '/desempenho':
         raise PreventUpdate
-    
-    # Este callback carrega os dados e constrói o layout da página inteira
+
     df_full = get_full_df()
     if df_full.empty or 'Erro' in df_full.columns:
         return html.Div([
@@ -507,7 +482,6 @@ def render_desempenho_page(pathname):
         
     clientes_options = sorted(df_full['Clientes'].dropna().unique())
     
-    # Retorna o layout interno da página, agora que os dados estão prontos
     return html.Div([
         html.Div([
             html.H3("Buscar Cliente"),
@@ -521,11 +495,10 @@ def render_desempenho_page(pathname):
         
         dcc.Loading(
             id="loading-desempenho-resultados",
-            type="circle",
+            type="default",
             children=html.Div(id='container-resultados-desempenho')
         )
     ])
-
 
 @app.callback(
     Output('container-resultados-desempenho', 'children'),
@@ -540,7 +513,7 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
     if df_full.empty or 'Erro' in df_full.columns:
         return html.Div([
             html.H4("❌ Erro ao Carregar Dados Completos", style={'color': 'red'}),
-            html.P("Não foi possível carregar o histórico completo. Verifique a conexão com o Google Sheets.")
+            html.P("Não foi possível carregar o histórico completo.")
         ], style={'textAlign': 'center', 'padding': '20px'})
 
     df_cliente = df_full[df_full['Clientes'] == cliente_selecionado].copy()
@@ -548,14 +521,12 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
     if df_cliente.empty:
         return html.P(f"Nenhum dado encontrado para o cliente: {cliente_selecionado}", style={'textAlign': 'center'})
 
-    # --- Cálculos para os KPIs ---
     primeira_fatura = df_cliente['Emissao'].min()
     ultima_fatura = df_cliente['Emissao'].max()
     total_faturado = df_cliente['Vlr_Titulo'].sum()
     total_recebido = df_cliente['Vlr_Recebido'].sum()
     faturas_vencidas = len(df_cliente[(df_cliente['Data_Pagamento'].isna()) & (df_cliente['Vencimento'] < datetime.now())])
     
-    # --- Gráfico 1: Evolução do Faturamento Anual ---
     df_cliente['Ano'] = df_cliente['Emissao'].dt.year
     faturamento_anual = df_cliente.groupby('Ano')['Vlr_Titulo'].sum().reset_index()
     fig_faturamento = px.bar(
@@ -565,7 +536,6 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
     )
     fig_faturamento.update_traces(textangle=0, textposition="outside")
 
-    # --- Gráfico 2: Histórico de Atrasos ---
     df_atrasos = df_cliente[df_cliente['DIAS_DE_ATRASO'] > 0].sort_values('Vencimento')
     fig_atrasos = px.bar(
         df_atrasos, x='Vencimento', y='DIAS_DE_ATRASO',
@@ -575,7 +545,6 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
     fig_atrasos.update_layout(bargap=0.1)
 
     return html.Div([
-        # Linha de KPIs
         html.Div([
             html.Div([html.H4("Total Faturado"), html.P(f"R$ {total_faturado:,.2f}")], className="mini-card"),
             html.Div([html.H4("Total Recebido"), html.P(f"R$ {total_recebido:,.2f}")], className="mini-card"),
@@ -585,7 +554,6 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
         
         html.Hr(style={'margin': '20px 0'}),
 
-        # Linha de Gráficos
         html.Div([
             dcc.Graph(figure=fig_faturamento, style={'flex': '1'}),
             dcc.Graph(figure=fig_atrasos, style={'flex': '1'}),
@@ -595,3 +563,4 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
 
 if __name__ == '__main__':
     app.run(debug=True)
+
