@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL, COMPLETA E CORRIGIDA)
+# app.py (VERSÃO FINAL COM ARQUITETURA CORRIGIDA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -563,4 +563,3 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
 
 if __name__ == '__main__':
     app.run(debug=True)
-
