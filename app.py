@@ -29,7 +29,6 @@ app.title = "Portal MercoCamp"
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     dcc.Store(id='competencia-store'),
-    # O spinner global é útil para transições de página
     dcc.Loading(
         id="global-spinner",
         type="default",
@@ -50,16 +49,31 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
     print(f"CACHE MISS: Gerando dados para a chave: {cache_key} (Histórico Completo: {full_history})")
     df = carregar_dados("BaseReceber2025", "BaseReceber")
     if df.empty or 'Erro' in df.columns:
-        return df # Retorna o DataFrame de erro para ser tratado nos callbacks
+        return df
 
+    # --- OTIMIZAÇÃO FINAL: FILTRAGEM RÁPIDA ANTES DO PROCESSAMENTO ---
     if not full_history:
-        df['Vencimento_temp'] = pd.to_datetime(df['Vencimento'], errors='coerce', dayfirst=True)
         hoje = pd.to_datetime("today").normalize()
         data_limite = hoje - relativedelta(years=2)
-        df = df.loc[df['Vencimento_temp'].notna() & (df['Vencimento_temp'] >= data_limite)].copy()
-        df.drop(columns=['Vencimento_temp'], inplace=True)
+        
+        # Cria uma máscara booleana para identificar as linhas a serem mantidas
+        # Condição 1: Verifica strings de data válidas (ex: 'dd/mm/yyyy')
+        s_datetime = pd.to_datetime(df['Vencimento'], errors='coerce', dayfirst=True)
+        mask_date_str = s_datetime >= data_limite
+        
+        # Condição 2: Verifica números de série do Excel válidos
+        s_numeric = pd.to_numeric(df['Vencimento'], errors='coerce')
+        excel_date_limit = (data_limite - pd.to_datetime('1899-12-30')).days
+        mask_date_num = s_numeric >= excel_date_limit
+        
+        # Combina as máscaras: uma linha é mantida se atender a qualquer uma das condições.
+        # Preenchemos os valores Nulos (células vazias ou texto inválido) com False.
+        final_mask = mask_date_str.fillna(False) | mask_date_num.fillna(False)
+        
+        df = df[final_mask].copy()
         print(f"Filtrado para os últimos 2 anos. {len(df)} linhas para processar.")
 
+    # --- PROCESSAMENTO PESADO (AGORA NO DATAFRAME MENOR OU COMPLETO) ---
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
     
@@ -94,8 +108,7 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
     return df
 
 def get_cache_key(full_history: bool):
-    """Cria uma chave de cache baseada na hora e no tipo de histórico."""
-    hora_arredondada = (datetime.now().hour // 1) * 1 # Atualiza a cada hora
+    hora_arredondada = (datetime.now().hour // 1) * 1
     return f"{datetime.now().strftime('%Y-%m-%d')}-{hora_arredondada}-full:{full_history}"
 
 def get_recent_df():
@@ -105,7 +118,6 @@ def get_full_df():
     return _preparar_dataframe_com_cache(get_cache_key(True), full_history=True)
 
 # --- CALLBACKS GERAIS (ROTEAMENTO, LOGIN, ATUALIZAÇÃO DE CACHE) ---
-
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
     if pathname == '/menu': return menu.layout
@@ -522,8 +534,6 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
     ultima_fatura = df_cliente['Emissao'].max()
     total_faturado = df_cliente['Vlr_Titulo'].sum()
     total_recebido = df_cliente['Vlr_Recebido'].sum()
-    faturas_emitidas = len(df_cliente)
-    faturas_pagas = len(df_cliente[df_cliente['Data_Pagamento'].notna()])
     faturas_vencidas = len(df_cliente[(df_cliente['Data_Pagamento'].isna()) & (df_cliente['Vencimento'] < datetime.now())])
     
     # --- Gráfico 1: Evolução do Faturamento Anual ---
