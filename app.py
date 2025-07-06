@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL COM SUGESTÕES IMPLEMENTADAS)
+# app.py (VERSÃO FINAL COM ARQUITETURA CORRIGIDA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -18,8 +18,8 @@ import operacao
 from faturamento import layout as layout_faturamento
 from contas_receber import layout as layout_contas_receber
 from cobranca import layout as layout_cobranca
-# ALTERAÇÃO: Importa a FUNÇÃO que cria o layout, não a variável
-from desempenho import create_layout as create_layout_desempenho
+# ALTERAÇÃO: Importa o layout estático de desempenho
+from desempenho import layout as layout_desempenho
 from sheets_api import carregar_dados
 
 app = Dash(__name__, suppress_callback_exceptions=True, assets_folder='assets')
@@ -52,20 +52,15 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
     if df.empty or 'Erro' in df.columns:
         return df
 
-    # --- OTIMIZAÇÃO FINAL: FILTRAGEM RÁPIDA ANTES DO PROCESSAMENTO ---
     if not full_history:
         hoje = pd.to_datetime("today").normalize()
         data_limite = hoje - relativedelta(years=2)
-        
         s_datetime = pd.to_datetime(df['Vencimento'], errors='coerce', dayfirst=True)
         mask_date_str = s_datetime >= data_limite
-        
         s_numeric = pd.to_numeric(df['Vencimento'], errors='coerce')
         excel_date_limit = (data_limite - pd.to_datetime('1899-12-30')).days
         mask_date_num = s_numeric >= excel_date_limit
-        
         final_mask = mask_date_str.fillna(False) | mask_date_num.fillna(False)
-        
         df = df[final_mask].copy()
         print(f"Filtrado para os últimos 2 anos. {len(df)} linhas para processar.")
 
@@ -116,17 +111,14 @@ def get_full_df():
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
     if pathname == '/menu': 
-        # Pré-aquece o cache de dados recentes ao entrar no menu
-        get_recent_df()
+        get_recent_df() # Pré-aquece o cache de dados recentes
         return menu.layout
     if pathname == '/faturamento': return layout_faturamento
     if pathname == '/operacao': return operacao.layout
     if pathname and pathname.startswith('/operacao/'): return layout_faturamento
     if pathname == '/contas_receber': return layout_contas_receber
     if pathname == '/cobranca': return layout_cobranca
-    # ALTERAÇÃO: Retorna um container vazio que será preenchido por outro callback
-    if pathname == '/desempenho': 
-        return html.Div(id="desempenho-page-content")
+    if pathname == '/desempenho': return layout_desempenho
     if pathname in ['/comercial', '/evolucao']:
         nome = pathname.strip('/').replace('_', ' ').title()
         return html.Div([html.H2(f"Página '{nome}' em construção..."), html.Br(), dcc.Link("⬅️ Voltar ao Menu", href="/menu", className="menu-button")], style={'textAlign': 'center', 'padding': '50px'})
@@ -496,7 +488,7 @@ def atualizar_rankings_cobranca(pathname):
     tabela_campeoes = criar_tabela_ranking("Top 10 Clientes com Maior Média de Atraso", campeoes_atraso, {"Cliente": ("Clientes", lambda x: x), "Média de Atraso": ("DIAS_DE_ATRASO", lambda x: f"{x:.0f} dias")})
     return html.Div([html.H3("Rankings de Recuperação (2025)", style={'textAlign': 'center', 'marginTop': '40px'}), html.Div([tabela_antigos, tabela_valores, tabela_campeoes], style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'})])
 
-# --- CALLBACKS DE DESEMPENHO (COM MELHORIAS VISUAIS) ---
+# --- CALLBACKS DE DESEMPENHO (COM ARQUITETURA ASSÍNCRONA) ---
 @app.callback(
     Output('desempenho-page-content', 'children'),
     Input('url', 'pathname')
@@ -505,7 +497,7 @@ def render_desempenho_page(pathname):
     if pathname != '/desempenho':
         raise PreventUpdate
     
-    # Este callback agora carrega os dados e constrói o layout da página inteira
+    # Este callback carrega os dados e constrói o layout da página inteira
     df_full = get_full_df()
     if df_full.empty or 'Erro' in df_full.columns:
         return html.Div([
@@ -514,8 +506,25 @@ def render_desempenho_page(pathname):
         ], style={'textAlign': 'center', 'padding': '20px'})
         
     clientes_options = sorted(df_full['Clientes'].dropna().unique())
-    # Chama a função do arquivo desempenho.py para criar o layout
-    return create_layout_desempenho(clientes_options)
+    
+    # Retorna o layout interno da página, agora que os dados estão prontos
+    return html.Div([
+        html.Div([
+            html.H3("Buscar Cliente"),
+            dcc.Dropdown(
+                id='dropdown-busca-cliente-desempenho',
+                options=[{'label': client, 'value': client} for client in clientes_options],
+                placeholder="Digite ou selecione um cliente...",
+            ),
+            html.Button('Buscar', id='botao-buscar-cliente-desempenho', n_clicks=0, className="menu-button", style={'marginTop': '10px'})
+        ], className="card-filtro", style={'marginBottom': '20px'}),
+        
+        dcc.Loading(
+            id="loading-desempenho-resultados",
+            type="circle",
+            children=html.Div(id='container-resultados-desempenho')
+        )
+    ])
 
 
 @app.callback(
