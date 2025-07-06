@@ -91,8 +91,8 @@ def get_full_df(): return _preparar_dataframe_com_cache(get_cache_key(True), ful
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
     print(f"Navegando para: {pathname}")
-    if pathname == '/menu': 
-        return menu.layout
+    # CORREÇÃO ARQUITETURAL: Apenas retorna o layout estático. Nenhum dado é carregado aqui.
+    if pathname == '/menu': return menu.layout
     if pathname == '/faturamento': return layout_faturamento
     if pathname == '/operacao': return operacao.layout
     if pathname and pathname.startswith('/operacao/'): return layout_faturamento
@@ -127,6 +127,7 @@ def atualizar_cache(n_clicks):
         return f"❌ Erro ao atualizar: {str(e)}"
 
 def filtrar_dados_por_contexto(df, pathname):
+    if df.empty: return df, "Faturamento Geral", None
     if 'Lotacao' not in df.columns: return df, "Faturamento Geral", html.Div("Erro Crítico: A coluna 'Lotacao' não foi encontrada.", style={'color': 'red'})
     if pathname == '/faturamento': return df, "Faturamento Geral", None
     if pathname and pathname.startswith('/operacao/'):
