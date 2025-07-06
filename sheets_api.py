@@ -1,4 +1,4 @@
-# sheets_api.py (VERSÃO PARA PRODUÇÃO COM LIMITE DE TESTE)
+# sheets_api.py (VERSÃO OTIMIZADA)
 
 import os
 import gspread
@@ -21,29 +21,25 @@ def carregar_dados(planilha_nome: str, aba_nome: str) -> pd.DataFrame:
         creds_path = LOCAL_SECRETS_PATH
 
     try:
+        print(f"Tentando autenticar com: {creds_path}")
         credenciais = ServiceAccountCredentials.from_json_keyfile_name(creds_path, escopo)
         cliente = gspread.authorize(credenciais)
+        print("✅ Autenticação com Google API bem-sucedida.")
 
         planilha = cliente.open(planilha_nome)
         aba = planilha.worksheet(aba_nome)
+        print(f"✅ Acesso à planilha '{planilha_nome} | {aba_nome}' bem-sucedido.")
         
         dados = aba.get_all_records(value_render_option='UNFORMATTED_VALUE')
         df = pd.DataFrame(dados)
 
-        print(f"✅ Planilha '{planilha_nome} | {aba_nome}' carregada com {len(df)} linhas.")
+        print(f"✅ Planilha carregada com {len(df)} linhas e {len(df.columns)} colunas.")
         
-        # --- LIMITE TEMPORÁRIO PARA TESTE NO RENDER ---
-        # Se o dataframe for muito grande, pegamos apenas as 500 linhas mais recentes para teste
-        if len(df) > 500:
-            df = df.tail(500).copy()
-            print(f"✅ APLICANDO LIMITE DE TESTE. {len(df)} LINHAS SERÃO USADAS.")
-        # -------------------------------------------------
-
         if not df.empty:
             df.columns = df.columns.str.strip()
 
         return df
     except Exception as e:
-        error_message = f"❌ Erro ao carregar dados do Sheets: {e}."
+        error_message = f"❌ Erro fatal ao carregar dados do Sheets: {e}."
         print(error_message)
         return pd.DataFrame({'Erro': [error_message]})
