@@ -1,4 +1,4 @@
-# app.py (VERSÃO OTIMIZADA FINAL)
+# app.py (VERSÃO FINAL COM SUGESTÕES IMPLEMENTADAS)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -8,6 +8,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import plotly.graph_objects as go
+import plotly.express as px
 from functools import lru_cache
 
 # Importe os layouts e a função de carregar dados
@@ -28,6 +29,7 @@ app.title = "Portal MercoCamp"
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     dcc.Store(id='competencia-store'),
+    # O spinner global é útil para transições de página
     dcc.Loading(
         id="global-spinner",
         type="default",
@@ -48,21 +50,16 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
     print(f"CACHE MISS: Gerando dados para a chave: {cache_key} (Histórico Completo: {full_history})")
     df = carregar_dados("BaseReceber2025", "BaseReceber")
     if df.empty or 'Erro' in df.columns:
-        return df
+        return df # Retorna o DataFrame de erro para ser tratado nos callbacks
 
-    # --- PASSO 1: FILTRAR ANTES DE PROCESSAR (A GRANDE OTIMIZAÇÃO) ---
     if not full_history:
-        # Tenta converter a coluna 'Vencimento' para datetime para o filtro.
-        # Usa um nome temporário para não interferir no processamento posterior.
         df['Vencimento_temp'] = pd.to_datetime(df['Vencimento'], errors='coerce', dayfirst=True)
         hoje = pd.to_datetime("today").normalize()
         data_limite = hoje - relativedelta(years=2)
-        # Filtra as linhas onde a conversão foi bem-sucedida e está dentro do período
         df = df.loc[df['Vencimento_temp'].notna() & (df['Vencimento_temp'] >= data_limite)].copy()
         df.drop(columns=['Vencimento_temp'], inplace=True)
         print(f"Filtrado para os últimos 2 anos. {len(df)} linhas para processar.")
 
-    # --- PASSO 2: PROCESSAMENTO PESADO (AGORA NO DATAFRAME CORRETO) ---
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
     
@@ -78,17 +75,11 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # --- OTIMIZAÇÃO DE DATA VECTORIZADA (MUITO MAIS RÁPIDO) ---
     date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
     for col in date_cols:
         if col in df.columns:
-            # Converte a coluna para numérico, tratando não-números como NaT (Not a Time)
             s_numeric = pd.to_numeric(df[col], errors='coerce')
-            # Converte a coluna para datetime, tratando formatos de texto inválidos como NaT
             s_datetime = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
-            
-            # Combina os resultados: usa a conversão de data de texto se for válida,
-            # senão, usa a conversão de data numérica (formato Excel).
             df[col] = s_datetime.fillna(pd.to_datetime('1899-12-30') + pd.to_timedelta(s_numeric, 'D'))
 
     if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
@@ -104,18 +95,17 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
 
 def get_cache_key(full_history: bool):
     """Cria uma chave de cache baseada na hora e no tipo de histórico."""
-    hora_arredondada = (datetime.now().hour // 3) * 3
+    hora_arredondada = (datetime.now().hour // 1) * 1 # Atualiza a cada hora
     return f"{datetime.now().strftime('%Y-%m-%d')}-{hora_arredondada}-full:{full_history}"
 
 def get_recent_df():
-    """Função para obter dados recentes (últimos 2 anos). Usada na maioria das páginas."""
     return _preparar_dataframe_com_cache(get_cache_key(False), full_history=False)
 
 def get_full_df():
-    """Função para obter o histórico completo. Usada para cálculos de score e tela de Desempenho."""
     return _preparar_dataframe_com_cache(get_cache_key(True), full_history=True)
 
-# --- ROTEAMENTO E CALLBACKS GERAIS ---
+# --- CALLBACKS GERAIS (ROTEAMENTO, LOGIN, ATUALIZAÇÃO DE CACHE) ---
+
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
     if pathname == '/menu': return menu.layout
@@ -142,6 +132,19 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
         time.sleep(1)
         return '/menu', ""
     return dash.no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
+
+@app.callback(
+    Output('refresh-status', 'children'),
+    Input('btn-refresh-cache', 'n_clicks'),
+    prevent_initial_call=True
+)
+def atualizar_cache(n_clicks):
+    try:
+        _preparar_dataframe_com_cache.cache_clear()
+        get_recent_df()
+        return f"✅ Cache atualizado com sucesso às {datetime.now().strftime('%H:%M:%S')}."
+    except Exception as e:
+        return f"❌ Erro ao atualizar cache: {str(e)}"
 
 def filtrar_dados_por_contexto(df, pathname):
     if 'Lotacao' not in df.columns: return df, "Faturamento Geral", html.Div("Erro Crítico: A coluna 'Lotacao' não foi encontrada.", style={'color': 'red'})
@@ -481,8 +484,11 @@ def atualizar_rankings_cobranca(pathname):
     tabela_campeoes = criar_tabela_ranking("Top 10 Clientes com Maior Média de Atraso", campeoes_atraso, {"Cliente": ("Clientes", lambda x: x), "Média de Atraso": ("DIAS_DE_ATRASO", lambda x: f"{x:.0f} dias")})
     return html.Div([html.H3("Rankings de Recuperação (2025)", style={'textAlign': 'center', 'marginTop': '40px'}), html.Div([tabela_antigos, tabela_valores, tabela_campeoes], style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'})])
 
-# --- CALLBACKS PARA A TELA DE DESEMPENHO ---
-@app.callback(Output('dropdown-busca-cliente', 'options'), Input('url', 'pathname'))
+# --- CALLBACKS DE DESEMPENHO (COM MELHORIAS VISUAIS) ---
+@app.callback(
+    Output('dropdown-busca-cliente-desempenho', 'options'),
+    Input('url', 'pathname')
+)
 def popular_clientes_desempenho(pathname):
     if pathname != '/desempenho': raise PreventUpdate
     df = get_full_df()
@@ -492,25 +498,71 @@ def popular_clientes_desempenho(pathname):
 
 @app.callback(
     Output('container-resultados-desempenho', 'children'),
-    Input('botao-buscar-cliente', 'n_clicks'),
-    State('dropdown-busca-cliente', 'value'),
+    Input('botao-buscar-cliente-desempenho', 'n_clicks'),
+    State('dropdown-busca-cliente-desempenho', 'value'),
     prevent_initial_call=True)
 def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
-    if not cliente_selecionado: return html.P("Selecione um cliente e clique em buscar para ver os resultados.")
+    if not cliente_selecionado:
+        return html.P("Selecione um cliente e clique em buscar para ver os resultados.", style={'textAlign': 'center'})
+
     df_full = get_full_df()
-    if df_full.empty or 'Erro' in df_full.columns: return html.P("Erro ao carregar o histórico completo de dados.")
+    if df_full.empty or 'Erro' in df_full.columns:
+        return html.Div([
+            html.H4("❌ Erro ao Carregar Dados Completos", style={'color': 'red'}),
+            html.P("Não foi possível carregar o histórico completo. Verifique a conexão com o Google Sheets.")
+        ], style={'textAlign': 'center', 'padding': '20px'})
+
     df_cliente = df_full[df_full['Clientes'] == cliente_selecionado].copy()
-    if df_cliente.empty: return html.P(f"Nenhum dado encontrado para o cliente: {cliente_selecionado}")
+
+    if df_cliente.empty:
+        return html.P(f"Nenhum dado encontrado para o cliente: {cliente_selecionado}", style={'textAlign': 'center'})
+
+    # --- Cálculos para os KPIs ---
     primeira_fatura = df_cliente['Emissao'].min()
     ultima_fatura = df_cliente['Emissao'].max()
     total_faturado = df_cliente['Vlr_Titulo'].sum()
+    total_recebido = df_cliente['Vlr_Recebido'].sum()
+    faturas_emitidas = len(df_cliente)
+    faturas_pagas = len(df_cliente[df_cliente['Data_Pagamento'].notna()])
+    faturas_vencidas = len(df_cliente[(df_cliente['Data_Pagamento'].isna()) & (df_cliente['Vencimento'] < datetime.now())])
+    
+    # --- Gráfico 1: Evolução do Faturamento Anual ---
+    df_cliente['Ano'] = df_cliente['Emissao'].dt.year
+    faturamento_anual = df_cliente.groupby('Ano')['Vlr_Titulo'].sum().reset_index()
+    fig_faturamento = px.bar(
+        faturamento_anual, x='Ano', y='Vlr_Titulo',
+        title=f"Faturamento Anual para {cliente_selecionado}",
+        text_auto='.2s', labels={'Vlr_Titulo': 'Faturamento (R$)', 'Ano': 'Ano'}
+    )
+    fig_faturamento.update_traces(textangle=0, textposition="outside")
+
+    # --- Gráfico 2: Histórico de Atrasos ---
+    df_atrasos = df_cliente[df_cliente['DIAS_DE_ATRASO'] > 0].sort_values('Vencimento')
+    fig_atrasos = px.bar(
+        df_atrasos, x='Vencimento', y='DIAS_DE_ATRASO',
+        title="Picos de Atraso no Pagamento",
+        labels={'Vencimento': 'Data de Vencimento', 'DIAS_DE_ATRASO': 'Dias de Atraso'}
+    )
+    fig_atrasos.update_layout(bargap=0.1)
+
     return html.Div([
-        html.H2(f"Análise de: {cliente_selecionado}", style={'color': '#007bff'}),
-        html.Hr(),
-        html.P(f"Primeira fatura em: {primeira_fatura.strftime('%d/%m/%Y') if pd.notna(primeira_fatura) else 'N/A'}"),
-        html.P(f"Última fatura em: {ultima_fatura.strftime('%d/%m/%Y') if pd.notna(ultima_fatura) else 'N/A'}"),
-        html.P(f"Total faturado (histórico): R$ {total_faturado:,.2f}"),
+        # Linha de KPIs
+        html.Div([
+            html.Div([html.H4("Total Faturado"), html.P(f"R$ {total_faturado:,.2f}")], className="mini-card"),
+            html.Div([html.H4("Total Recebido"), html.P(f"R$ {total_recebido:,.2f}")], className="mini-card"),
+            html.Div([html.H4("Faturas Vencidas"), html.P(f"{faturas_vencidas}")], className="mini-card"),
+            html.Div([html.H4("Primeira Fatura"), html.P(f"{primeira_fatura.strftime('%d/%m/%Y') if pd.notna(primeira_fatura) else 'N/A'}")], className="mini-card"),
+        ], style={'display': 'flex', 'gap': '15px', 'justifyContent': 'center', 'flexWrap': 'wrap'}),
+        
+        html.Hr(style={'margin': '20px 0'}),
+
+        # Linha de Gráficos
+        html.Div([
+            dcc.Graph(figure=fig_faturamento, style={'flex': '1'}),
+            dcc.Graph(figure=fig_atrasos, style={'flex': '1'}),
+        ], style={'display': 'flex', 'gap': '20px'}),
     ])
+
 
 if __name__ == '__main__':
     app.run(debug=True)
