@@ -91,8 +91,8 @@ def get_full_df(): return _preparar_dataframe_com_cache(get_cache_key(True), ful
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
     if pathname == '/menu': 
-        get_recent_df()
-        return menu.layout
+       print("✅ Entrando no menu. Layout carregado sem aguardar cache.")
+       return menu.layout
     if pathname == '/faturamento': return layout_faturamento
     if pathname == '/operacao': return operacao.layout
     if pathname and pathname.startswith('/operacao/'): return layout_faturamento
