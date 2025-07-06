@@ -1,4 +1,4 @@
-# app.py (VERSÃO CORRIGIDA E SIMPLIFICADA)
+# app.py (VERSÃO FINAL E ROBUSTA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -14,7 +14,7 @@ from functools import lru_cache
 import login
 import menu 
 import operacao
-import desempenho # <-- NOVO
+import desempenho
 from faturamento import layout as layout_faturamento
 from contas_receber import layout as layout_contas_receber
 from cobranca import layout as layout_cobranca
@@ -39,43 +39,42 @@ app.layout = html.Div([
 
 # --- CALLBACKS ---
 
-# Callback de Roteamento (Mais organizado)
+# Callback de Roteamento (Mais organizado e robusto com if/elif/else)
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
-    # Páginas que não precisam de login
-    if pathname in ['/login', '/']:
-        return login.layout
-
-    # Páginas principais
+    # Adiciona um print nos logs para depuração
+    print(f"DEBUG: Roteador acessado com pathname: '{pathname}'")
+    
     if pathname == '/menu':
         return menu.layout
-    if pathname == '/faturamento':
+    elif pathname == '/faturamento':
         return layout_faturamento
-    if pathname == '/operacao':
+    elif pathname == '/operacao':
         return operacao.layout
-    if pathname and pathname.startswith('/operacao/'):
+    elif pathname and pathname.startswith('/operacao/'):
         return layout_faturamento
-    if pathname == '/contas_receber':
+    elif pathname == '/contas_receber':
         return layout_contas_receber
-    if pathname == '/cobranca':
+    elif pathname == '/cobranca':
         return layout_cobranca
-    if pathname == '/desempenho': # <-- ROTA ADICIONADA
+    elif pathname == '/desempenho':
         return desempenho.layout
-
-    # Páginas em construção
-    if pathname in ['/comercial', '/evolucao']:
+    elif pathname in ['/comercial', '/evolucao']:
         nome = pathname.strip('/').replace('_', ' ').title()
         return html.Div([
             html.H2(f"Página '{nome}' em construção..."),
             html.Br(),
             dcc.Link("⬅️ Voltar ao Menu", href="/menu", className="menu-button")
         ], style={'textAlign': 'center', 'padding': '50px'})
-    
-    # Fallback para página não encontrada
-    return html.Div([
-        html.H2("404: Página não encontrada"),
-        dcc.Link("⬅️ Voltar ao Menu", href="/menu")
-    ], style={'textAlign': 'center', 'padding': '50px'})
+    elif pathname == '/login' or pathname == '/':
+        return login.layout
+    else:
+        # Se nenhum caminho corresponder, mostra uma página de erro clara
+        return html.Div([
+            html.H2("404: Página não encontrada"),
+            html.P(f"O caminho '{pathname}' não foi reconhecido pela aplicação."),
+            dcc.Link("⬅️ Voltar ao Menu", href="/menu")
+        ], style={'textAlign': 'center', 'padding': '50px'})
 
 
 # Callback de Login
@@ -108,11 +107,9 @@ def _preparar_dataframe_com_cache(cache_key: str):
     if 'Erro' in df.columns:
         return df
 
-    # Garante que a coluna de cliente tenha o nome correto
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
     
-    # Limpa e formata colunas de texto
     text_cols = ['Clientes', 'Competencia', 'Tipo_Resumido', 'Lotacao']
     for col in text_cols:
         if col in df.columns:
@@ -120,29 +117,21 @@ def _preparar_dataframe_com_cache(cache_key: str):
             if col == 'Tipo_Resumido':
                 df[col] = df[col].str.lower()
     
-    # Converte colunas numéricas, tratando erros
     numeric_cols = ['Vlr_Titulo', 'Vlr_Recebido']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # *** LÓGICA DE DATA SIMPLIFICADA ***
-    # Converte colunas de data, tratando erros. Não precisa mais da lógica complexa.
     date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
     for col in date_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
 
-    # Calcula dias de atraso de forma mais segura
     if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
         df['DIAS_DE_ATRASO'] = 0
         hoje = pd.to_datetime("today").normalize()
-
-        # Títulos pagos
         pagas_mask = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
         df.loc[pagas_mask, 'DIAS_DE_ATRASO'] = (df.loc[pagas_mask, 'Data_Pagamento'] - df.loc[pagas_mask, 'Vencimento']).dt.days
-
-        # Títulos em aberto e vencidos
         em_aberto_vencidas_mask = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
         df.loc[em_aberto_vencidas_mask, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas_mask, 'Vencimento']).dt.days
     
@@ -150,12 +139,10 @@ def _preparar_dataframe_com_cache(cache_key: str):
     return df
 
 def get_cache_key():
-    """Cria uma chave de cache baseada na hora atual, arredondada para baixo a cada 3 horas."""
     hora_arredondada = (datetime.now().hour // 3) * 3
     return datetime.now().strftime(f'%Y-%m-%d-{hora_arredondada}')
 
 def preparar_dataframe_completo():
-    """Função principal que chama a versão em cache."""
     return _preparar_dataframe_com_cache(get_cache_key())
 
 # --- FUNÇÃO AUXILIAR PARA FILTRAR DADOS ---
@@ -229,35 +216,19 @@ def gerar_kpis_e_cards(competencia, pathname):
     
     df_competencia_atual = df_contexto[df_contexto["Competencia"] == competencia]
     df_competencia_anterior = df_contexto[df_contexto["Competencia"] == previous_competencia_str]
-
     df_armazenagem_atual = df_competencia_atual[df_competencia_atual["Tipo_Resumido"] == "armazenagem"]
     df_armazenagem_anterior = df_competencia_anterior[df_competencia_anterior["Tipo_Resumido"] == "armazenagem"]
-    
     clientes_atuais = df_armazenagem_atual['Clientes'].nunique()
     meta_clientes = df_armazenagem_anterior['Clientes'].nunique()
-
     gauge_fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=clientes_atuais,
+        mode="gauge+number+delta", value=clientes_atuais,
         title={'text': f"<b>Clientes de Armazenagem</b><br><span style='font-size:0.8em;color:gray'>Meta: {meta_clientes}</span>"},
         delta={'reference': meta_clientes, 'increasing': {'color': "#28a745"}},
-        gauge={
-            'axis': {'range': [0, meta_clientes * 1.5]},
-            'bar': {'color': "#007bff"},
-            'steps': [
-                {'range': [0, meta_clientes * 0.7], 'color': 'lightgray'},
-                {'range': [meta_clientes * 0.7, meta_clientes * 0.9], 'color': 'gray'}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': meta_clientes
-            }
-        }
-    ))
+        gauge={'axis': {'range': [0, meta_clientes * 1.5]}, 'bar': {'color': "#007bff"},
+               'steps': [{'range': [0, meta_clientes * 0.7], 'color': 'lightgray'}, {'range': [meta_clientes * 0.7, meta_clientes * 0.9], 'color': 'gray'}],
+               'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': meta_clientes}}))
     gauge_fig.update_layout(height=200, margin={'t': 40, 'b': 20, 'l': 30, 'r': 30})
     gauge_kpi = dcc.Graph(figure=gauge_fig, config={'displayModeBar': False}, style={'flex': '1.5'})
-    
     total_current = df_competencia_atual["Vlr_Titulo"].sum()
     total_previous = df_competencia_anterior["Vlr_Titulo"].sum()
     kpi_faturamento = None
@@ -271,28 +242,25 @@ def gerar_kpis_e_cards(competencia, pathname):
         ], style={'textAlign': 'center', 'padding': '20px'})
     else:
         kpi_faturamento = html.Div(f"Sem dados de faturamento para {previous_competencia_str}.", style={'color': '#6c757d', 'fontSize': '14px', 'padding': '20px'})
-
     aluguel_current = df_competencia_atual[df_competencia_atual["Tipo_Resumido"] == "aluguel"]
     armazenagem_current = df_armazenagem_atual
     aluguel_previous_total = df_competencia_anterior[df_competencia_anterior["Tipo_Resumido"] == "aluguel"]["Vlr_Titulo"].sum()
     armazenagem_previous_total = df_armazenagem_anterior["Vlr_Titulo"].sum()
-    
     def formatar(valor): return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     def card(titulo, qtd, valor_atual, valor_anterior=0, competencia_anterior=None, flex_size='1'):
         comparison_text = html.P(f"(sem dados em {competencia_anterior})", style={'fontSize': '12px', 'color': '#6c757d', 'marginTop': '8px'})
         if valor_anterior > 0:
             comparison_text = html.P(f"(vs. {formatar(valor_anterior)} em {competencia_anterior})", style={'fontSize': '12px', 'color': '#6c757d', 'marginTop': '8px'})
         return html.Div([html.P(titulo, style={'fontWeight': 'bold', 'color': '#007bff'}), html.H3(f"{qtd} faturas", style={'margin': '5px 0'}), html.H2(formatar(valor_atual), style={'color': '#333'}), comparison_text], style={'padding': '20px', 'borderRadius': '16px', 'backgroundColor': '#fff', 'boxShadow': '0 4px 10px rgba(0,0,0,0.1)', 'textAlign': 'center', 'minWidth': '220px', 'flex': flex_size})
-    
     card_total = card("Total", len(df_competencia_atual), total_current, total_previous, previous_competencia_str, flex_size='1')
     total_e_gauge_group = html.Div([card_total, gauge_kpi], style={'display': 'flex', 'gap': '20px', 'flex': '2', 'alignItems': 'center'})
     cards_layout = [
         card("Aluguel", len(aluguel_current), aluguel_current["Vlr_Titulo"].sum(), aluguel_previous_total, previous_competencia_str),
         card("Armazenagem", len(armazenagem_current), armazenagem_current["Vlr_Titulo"].sum(), armazenagem_previous_total, previous_competencia_str),
-        total_e_gauge_group
-    ]
+        total_e_gauge_group]
     return kpi_faturamento, cards_layout, titulo_pagina, voltar_href
 
+# Restante do código permanece o mesmo...
 @app.callback(Output('clientes-faturados-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_lista_faturas_tabela(competencia, pathname):
     if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
@@ -319,7 +287,6 @@ def gerar_lista_faturas_tabela(competencia, pathname):
         score, categoria = score_tuple
         cor_score = {"Excelente": "#28a745", "Bom": "#198754", "Atenção": "#ffc107", "Crítico": "#dc3545"}.get(categoria, 'grey')
         return html.Span(f"{categoria} ({score})", style={'color': cor_score, 'fontWeight': 'bold'})
-
     df_competencia = df_contexto[df_contexto['Competencia'] == competencia].copy()
     if df_competencia.empty: return html.Div("Nenhuma fatura emitida nesta competência.", style={'textAlign': 'center', 'padding': '20px'})
     df_competencia = df_competencia.sort_values(by='Vlr_Titulo', ascending=False)
@@ -429,31 +396,21 @@ def gerar_grafico_evolucao_anual(competencia, pathname):
     fig = go.Figure()
     for cliente in df_acumulado.columns:
         fig.add_trace(go.Scatter(
-            x=df_acumulado.index,
-            y=df_acumulado[cliente],
-            name=cliente,
-            mode='lines+markers',
-            hovertemplate=f'<b>{cliente}</b><br>Mês: %{{x|%b/%Y}}<br>Acumulado: R$ %{{y:,.2f}}<extra></extra>'
-        ))
+            x=df_acumulado.index, y=df_acumulado[cliente], name=cliente, mode='lines+markers',
+            hovertemplate=f'<b>{cliente}</b><br>Mês: %{{x|%b/%Y}}<br>Acumulado: R$ %{{y:,.2f}}<extra></extra>'))
     fig.update_layout(
         title=f"<b>Evolução Acumulada (Top 10 Clientes de 01/{ano_selecionado} a {competencia})</b>",
-        xaxis_title="Mês",
-        yaxis_title="Faturamento Acumulado (R$)",
-        template="plotly_white",
-        legend_title="Clientes",
-        margin=dict(t=50, b=20, l=20, r=20)
-    )
+        xaxis_title="Mês", yaxis_title="Faturamento Acumulado (R$)", template="plotly_white",
+        legend_title="Clientes", margin=dict(t=50, b=20, l=20, r=20))
     return html.Div(dcc.Graph(figure=fig), style={'border': '1px solid #ddd', 'borderRadius': '8px', 'padding': '10px', 'marginTop': '20px'})
 
-# --- NOVOS CALLBACKS PARA A PÁGINA DE CONTAS A RECEBER ---
 @app.callback(
     Output('recebimentos-container', 'children'),
     Input('filtro-data-recebimento', 'start_date'),
     Input('filtro-data-recebimento', 'end_date')
 )
 def atualizar_recebimentos(start_date, end_date):
-    if not start_date or not end_date:
-        raise PreventUpdate
+    if not start_date or not end_date: raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return html.Div(df_full['Erro'][0])
     if 'Data_Pagamento' not in df_full.columns or 'Vlr_Recebido' not in df_full.columns:
@@ -461,48 +418,29 @@ def atualizar_recebimentos(start_date, end_date):
     df_full['Vlr_Recebido'] = pd.to_numeric(df_full['Vlr_Recebido'], errors='coerce').fillna(0)
     start_date_dt = pd.to_datetime(start_date)
     end_date_dt = pd.to_datetime(end_date)
-    df_recebido_periodo = df_full[
-        (df_full['Data_Pagamento'] >= start_date_dt) & 
-        (df_full['Data_Pagamento'] <= end_date_dt)
-    ]
+    df_recebido_periodo = df_full[(df_full['Data_Pagamento'] >= start_date_dt) & (df_full['Data_Pagamento'] <= end_date_dt)]
     total_recebido = df_recebido_periodo['Vlr_Recebido'].sum()
     recebimentos_diarios = df_recebido_periodo.groupby(df_recebido_periodo['Data_Pagamento'].dt.date)['Vlr_Recebido'].sum()
-    fig = go.Figure(go.Bar(
-        x=recebimentos_diarios.index,
-        y=recebimentos_diarios.values,
-        text=recebimentos_diarios.values,
-        texttemplate='R$ %{y:,.2f}',
-        textposition='outside'
-    ))
+    fig = go.Figure(go.Bar(x=recebimentos_diarios.index, y=recebimentos_diarios.values, text=recebimentos_diarios.values, texttemplate='R$ %{y:,.2f}', textposition='outside'))
     fig.update_layout(
         title=f"<b>Recebimentos Diários de {start_date_dt.strftime('%d/%m')} a {end_date_dt.strftime('%d/%m')}</b>",
-        xaxis_title="Data do Pagamento",
-        yaxis_title="Valor Recebido (R$)",
-        template="plotly_white"
-    )
+        xaxis_title="Data do Pagamento", yaxis_title="Valor Recebido (R$)", template="plotly_white")
     kpi_card = html.Div([
         html.H3("Total Recebido no Período"),
         html.P(f"R$ {total_recebido:,.2f}", style={'fontSize': 24, 'fontWeight': 'bold', 'color': '#28a745'})
     ], style={'textAlign': 'center', 'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '10px'})
-    return html.Div([
-        kpi_card,
-        dcc.Graph(figure=fig)
-    ])
+    return html.Div([kpi_card, dcc.Graph(figure=fig)])
 
 @app.callback(
     Output('projecao-recebiveis-container', 'children'),
     Input('filtro-data-recebimento', 'end_date')
 )
 def atualizar_projecao_recebiveis(end_date):
-    if not end_date:
-        raise PreventUpdate
+    if not end_date: raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
     hoje = pd.to_datetime('today').normalize()
-    df_futuro = df_full[
-        (df_full['Vencimento'] > hoje) & 
-        (df_full['Data_Pagamento'].isna())
-    ].copy()
+    df_futuro = df_full[(df_full['Vencimento'] > hoje) & (df_full['Data_Pagamento'].isna())].copy()
     df_full['Adiantou'] = (df_full['Vencimento'] - df_full['Data_Pagamento']).dt.days > 5
     clientes_adiantam = df_full[df_full['Adiantou']]['Clientes'].unique()
     df_futuro['Bom_Pagador'] = df_futuro['Clientes'].isin(clientes_adiantam)
@@ -529,47 +467,35 @@ def atualizar_projecao_recebiveis(end_date):
     for _, row in proximos_30_dias.iterrows():
         cor_score = {"Excelente": "#28a745", "Bom": "#198754", "Atenção": "#ffc107", "Crítico": "#dc3545"}.get(row['Score_Categoria'], 'grey')
         rows.append(html.Tr([
-            html.Td(row['Vencimento'].strftime('%d/%m/%Y')),
-            html.Td(row['Clientes']),
+            html.Td(row['Vencimento'].strftime('%d/%m/%Y')), html.Td(row['Clientes']),
             html.Td(f"R$ {row['Vlr_Titulo']:,.2f}"),
             html.Td(html.Span(f"{row['Score_Categoria']} ({row['Score_Valor']})", style={'color': cor_score, 'fontWeight': 'bold'})),
-            html.Td("✅ Sim" if row['Bom_Pagador'] else "Não", style={'textAlign': 'center'})
-        ]))
+            html.Td("✅ Sim" if row['Bom_Pagador'] else "Não", style={'textAlign': 'center'})]))
     tabela_vencimentos = html.Table([header, html.Tbody(rows)], className="table table-striped")
     df_historico = df_full[df_full['Data_Pagamento'].notna()]
     media_mensal_recebida = df_historico.groupby(df_historico['Data_Pagamento'].dt.to_period('M'))['Vlr_Recebido'].sum().mean()
     projecao_card = html.Div([
-        html.H4("Projeção Histórica"),
-        html.P("Média mensal recebida nos últimos meses:"),
+        html.H4("Projeção Histórica"), html.P("Média mensal recebida nos últimos meses:"),
         html.P(f"R$ {media_mensal_recebida:,.2f}", style={'fontSize': 22, 'fontWeight': 'bold'})
     ], style={'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '10px', 'textAlign': 'center'})
     return html.Div([
         html.H2("Projeção de Recebíveis Futuros", style={'textAlign': 'center', 'marginTop': '40px'}),
         html.Div([
-            html.Div([
-                html.H4("Próximos 30 Dias a Vencer"),
-                tabela_vencimentos
-            ], style={'flex': 3, 'paddingRight': '20px'}),
-            html.Div(projecao_card, style={'flex': 1})
-        ], style={'display': 'flex'})
-    ])
+            html.Div([html.H4("Próximos 30 Dias a Vencer"), tabela_vencimentos], style={'flex': 3, 'paddingRight': '20px'}),
+            html.Div(projecao_card, style={'flex': 1})], style={'display': 'flex'})])
 
-# --- NOVOS CALLBACKS PARA A PÁGINA DE COBRANÇA ---
 @app.callback(
     Output('cobranca-container', 'children'),
     Input('url', 'pathname')
 )
 def atualizar_kpis_cobranca(pathname):
-    if pathname != '/cobranca':
-        raise PreventUpdate
+    if pathname != '/cobranca': raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return html.Div(df_full['Erro'][0])
     required_cols = ['Vencimento', 'DIAS_DE_ATRASO', 'Vlr_Titulo', 'Vlr_Recebido', 'Data_Pagamento']
     for col in required_cols:
         if col not in df_full.columns:
             return html.Div(f"Erro: A coluna '{col}' é essencial e não foi encontrada.", style={'color': 'red', 'textAlign': 'center'})
-    
-    # Análise de 2025
     df_2025 = df_full[df_full['Vencimento'].dt.year == 2025].copy()
     portfolio_2025 = df_2025[df_2025['DIAS_DE_ATRASO'] > 0]
     total_devido_2025 = portfolio_2025['Vlr_Titulo'].sum()
@@ -579,42 +505,29 @@ def atualizar_kpis_cobranca(pathname):
     juros_df = recuperado_2025_df[recuperado_2025_df['Vlr_Recebido'] > recuperado_2025_df['Vlr_Titulo']].copy()
     juros_df['Juros'] = juros_df['Vlr_Recebido'] - juros_df['Vlr_Titulo']
     juros_2025 = juros_df['Juros'].sum()
-
-    # Análise de 2024
     df_2024 = df_full[df_full['Vencimento'].dt.year == 2024].copy()
     portfolio_2024 = df_2024[df_2024['DIAS_DE_ATRASO'] > 0]
     total_devido_2024 = portfolio_2024['Vlr_Titulo'].sum()
     total_recuperado_2024 = portfolio_2024[portfolio_2024['Data_Pagamento'].notna()]['Vlr_Recebido'].sum()
     taxa_recuperacao_2024 = (total_recuperado_2024 / total_devido_2024) * 100 if total_devido_2024 > 0 else 0
-
     def criar_kpi_card(titulo, valor, cor_valor='#333', sufixo='', prefixo=''):
         return html.Div([
             html.H4(titulo, style={'fontWeight': 'normal', 'color': '#6c757d'}),
             html.P(f"{prefixo}{valor:,.2f}{sufixo}", style={'fontSize': 28, 'fontWeight': 'bold', 'color': cor_valor})
         ], style={'textAlign': 'center', 'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '10px', 'flex': '1'})
-
     kpis_2025 = html.Div([
         criar_kpi_card("Taxa de Recuperação 2025", taxa_recuperacao_2025, '#28a745', sufixo='%'),
         criar_kpi_card("Juros Recebidos 2025", juros_2025, '#007bff', prefixo='R$ ')
     ], style={'display': 'flex', 'gap': '20px', 'marginBottom': '30px'})
-
     fig_comparativo = go.Figure(go.Bar(
-        x=['2024', '2025'],
-        y=[taxa_recuperacao_2024, taxa_recuperacao_2025],
+        x=['2024', '2025'], y=[taxa_recuperacao_2024, taxa_recuperacao_2025],
         text=[f"{taxa_recuperacao_2024:.1f}%", f"{taxa_recuperacao_2025:.1f}%"],
-        textposition='auto', marker_color=['#6c757d', '#007bff']
-    ))
-    fig_comparativo.update_layout(
-        title="<b>Taxa de Recuperação Anual (Títulos Vencidos)</b>",
-        yaxis_title="Taxa de Recuperação (%)", template="plotly_white"
-    )
-
+        textposition='auto', marker_color=['#6c757d', '#007bff']))
+    fig_comparativo.update_layout(title="<b>Taxa de Recuperação Anual (Títulos Vencidos)</b>", yaxis_title="Taxa de Recuperação (%)", template="plotly_white")
     return html.Div([
         html.H3("Desempenho da Cobrança em 2025", style={'textAlign': 'center'}),
         html.P("Análise de todos os títulos vencidos.", style={'textAlign': 'center', 'color': 'grey'}),
-        kpis_2025,
-        dcc.Graph(figure=fig_comparativo)
-    ])
+        kpis_2025, dcc.Graph(figure=fig_comparativo)])
 
 @app.callback(
     Output('cobranca-recebimentos-diarios-container', 'children'),
@@ -624,19 +537,13 @@ def atualizar_recebimentos_cobranca(pathname):
     if pathname != '/cobranca': raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
-    recuperados_2025 = df_full[
-        (df_full['Vencimento'].dt.year == 2025) &
-        (df_full['DIAS_DE_ATRASO'] > 0) &
-        (df_full['Data_Pagamento'].notna())
-    ]
+    recuperados_2025 = df_full[(df_full['Vencimento'].dt.year == 2025) & (df_full['DIAS_DE_ATRASO'] > 0) & (df_full['Data_Pagamento'].notna())]
     if recuperados_2025.empty:
         return html.H5("Nenhum título vencido recuperado em 2025.", style={'textAlign': 'center'})
-    
     recebimentos_diarios = recuperados_2025.groupby(recuperados_2025['Data_Pagamento'].dt.date)['Vlr_Recebido'].sum()
     fig = go.Figure(go.Bar(
         x=recebimentos_diarios.index, y=recebimentos_diarios.values,
-        text=recebimentos_diarios.values, texttemplate='R$ %{y:,.2f}', textposition='outside'
-    ))
+        text=recebimentos_diarios.values, texttemplate='R$ %{y:,.2f}', textposition='outside'))
     fig.update_layout(title="<b>Valores Recuperados por Dia em 2025</b>", xaxis_title="Data do Pagamento", yaxis_title="Valor Recuperado (R$)", template="plotly_white")
     return dcc.Graph(figure=fig)
 
@@ -648,22 +555,13 @@ def atualizar_rankings_cobranca(pathname):
     if pathname != '/cobranca': raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
-    
-    recuperados_2025 = df_full[
-        (df_full['Vencimento'].dt.year == 2025) &
-        (df_full['DIAS_DE_ATRASO'] > 0) &
-        (df_full['Data_Pagamento'].notna())
-    ].copy()
-
+    recuperados_2025 = df_full[(df_full['Vencimento'].dt.year == 2025) & (df_full['DIAS_DE_ATRASO'] > 0) & (df_full['Data_Pagamento'].notna())].copy()
     if recuperados_2025.empty: return None
-
     top_10_antigos = recuperados_2025.sort_values(by='Vencimento', ascending=True).head(10)
     top_10_valores = recuperados_2025.sort_values(by='Vlr_Recebido', ascending=False).head(10)
-
     df_pagos_atrasados = df_full[(df_full['Data_Pagamento'].notna()) & (df_full['DIAS_DE_ATRASO'] > 0)]
     campeoes_atraso = df_pagos_atrasados.groupby('Clientes')['DIAS_DE_ATRASO'].mean().reset_index()
     campeoes_atraso = campeoes_atraso.sort_values(by='DIAS_DE_ATRASO', ascending=False).head(10)
-
     def criar_tabela_ranking(titulo, df, colunas_map):
         header = [html.Th(col) for col in colunas_map.keys()]
         rows = []
@@ -676,24 +574,18 @@ def atualizar_rankings_cobranca(pathname):
             html.H5(titulo, style={'textAlign': 'center'}),
             html.Table([html.Thead(html.Tr(header)), html.Tbody(rows)], className="table table-sm table-striped")
         ], style={'flex': 1, 'minWidth': '300px'})
-
     tabela_antigos = criar_tabela_ranking(
         "Top 10 Títulos Mais Antigos Recuperados", top_10_antigos, 
-        {"Vencimento": ("Vencimento", lambda x: x.strftime('%d/%m/%Y')), "Cliente": ("Clientes", lambda x: x), "Valor Recuperado": ("Vlr_Recebido", lambda x: f"R$ {x:,.2f}")}
-    )
+        {"Vencimento": ("Vencimento", lambda x: x.strftime('%d/%m/%Y')), "Cliente": ("Clientes", lambda x: x), "Valor Recuperado": ("Vlr_Recebido", lambda x: f"R$ {x:,.2f}")})
     tabela_valores = criar_tabela_ranking(
         "Top 10 Maiores Valores Recuperados", top_10_valores,
-        {"Cliente": ("Clientes", lambda x: x), "Valor Recuperado": ("Vlr_Recebido", lambda x: f"R$ {x:,.2f}"), "Pago em": ("Data_Pagamento", lambda x: x.strftime('%d/%m/%Y'))}
-    )
+        {"Cliente": ("Clientes", lambda x: x), "Valor Recuperado": ("Vlr_Recebido", lambda x: f"R$ {x:,.2f}"), "Pago em": ("Data_Pagamento", lambda x: x.strftime('%d/%m/%Y'))})
     tabela_campeoes = criar_tabela_ranking(
         "Top 10 Clientes com Maior Média de Atraso", campeoes_atraso,
-        {"Cliente": ("Clientes", lambda x: x), "Média de Atraso": ("DIAS_DE_ATRASO", lambda x: f"{x:.0f} dias")}
-    )
-
+        {"Cliente": ("Clientes", lambda x: x), "Média de Atraso": ("DIAS_DE_ATRASO", lambda x: f"{x:.0f} dias")})
     return html.Div([
         html.H3("Rankings de Recuperação (2025)", style={'textAlign': 'center', 'marginTop': '40px'}),
-        html.Div([tabela_antigos, tabela_valores, tabela_campeoes], style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'})
-    ])
+        html.Div([tabela_antigos, tabela_valores, tabela_campeoes], style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'})])
 
 # --- NOVO CALLBACK PARA O BOTÃO DE ATUALIZAÇÃO ---
 @app.callback(
@@ -703,13 +595,9 @@ def atualizar_rankings_cobranca(pathname):
 def handle_refresh_button(n_clicks):
     if n_clicks is None or n_clicks == 0:
         raise PreventUpdate
-    
     print("ATUALIZAÇÃO MANUAL: Limpando o cache de dados...")
     _preparar_dataframe_com_cache.cache_clear()
-    
-    # Força a recarga dos dados
     preparar_dataframe_completo()
-
     return f"Dados atualizados às {datetime.now().strftime('%H:%M:%S')}. A página será recarregada."
 
 if __name__ == '__main__':
