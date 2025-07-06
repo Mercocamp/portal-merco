@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL COM OTIMIZAÇÕES E CACHE)
+# app.py (VERSÃO CORRIGIDA E SIMPLIFICADA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -14,6 +14,7 @@ from functools import lru_cache
 import login
 import menu 
 import operacao
+import desempenho # <-- NOVO
 from faturamento import layout as layout_faturamento
 from contas_receber import layout as layout_contas_receber
 from cobranca import layout as layout_cobranca
@@ -38,16 +39,30 @@ app.layout = html.Div([
 
 # --- CALLBACKS ---
 
-# Callback de Roteamento
+# Callback de Roteamento (Mais organizado)
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
-    if pathname == '/menu': return menu.layout
-    if pathname == '/faturamento': return layout_faturamento
-    if pathname == '/operacao': return operacao.layout
-    if pathname and pathname.startswith('/operacao/'): return layout_faturamento
-    if pathname == '/contas_receber': return layout_contas_receber
-    if pathname == '/cobranca': return layout_cobranca
+    # Páginas que não precisam de login
+    if pathname in ['/login', '/']:
+        return login.layout
 
+    # Páginas principais
+    if pathname == '/menu':
+        return menu.layout
+    if pathname == '/faturamento':
+        return layout_faturamento
+    if pathname == '/operacao':
+        return operacao.layout
+    if pathname and pathname.startswith('/operacao/'):
+        return layout_faturamento
+    if pathname == '/contas_receber':
+        return layout_contas_receber
+    if pathname == '/cobranca':
+        return layout_cobranca
+    if pathname == '/desempenho': # <-- ROTA ADICIONADA
+        return desempenho.layout
+
+    # Páginas em construção
     if pathname in ['/comercial', '/evolucao']:
         nome = pathname.strip('/').replace('_', ' ').title()
         return html.Div([
@@ -55,8 +70,13 @@ def display_page(pathname):
             html.Br(),
             dcc.Link("⬅️ Voltar ao Menu", href="/menu", className="menu-button")
         ], style={'textAlign': 'center', 'padding': '50px'})
-    if pathname == '/login' or pathname == '/': return login.layout
-    return html.Div("Página não encontrada", style={'textAlign': 'center', 'padding': '50px'})
+    
+    # Fallback para página não encontrada
+    return html.Div([
+        html.H2("404: Página não encontrada"),
+        dcc.Link("⬅️ Voltar ao Menu", href="/menu")
+    ], style={'textAlign': 'center', 'padding': '50px'})
+
 
 # Callback de Login
 @app.callback(
@@ -88,9 +108,11 @@ def _preparar_dataframe_com_cache(cache_key: str):
     if 'Erro' in df.columns:
         return df
 
+    # Garante que a coluna de cliente tenha o nome correto
     if 'Cliente' in df.columns and 'Clientes' not in df.columns:
         df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
     
+    # Limpa e formata colunas de texto
     text_cols = ['Clientes', 'Competencia', 'Tipo_Resumido', 'Lotacao']
     for col in text_cols:
         if col in df.columns:
@@ -98,34 +120,31 @@ def _preparar_dataframe_com_cache(cache_key: str):
             if col == 'Tipo_Resumido':
                 df[col] = df[col].str.lower()
     
+    # Converte colunas numéricas, tratando erros
     numeric_cols = ['Vlr_Titulo', 'Vlr_Recebido']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    def parse_mixed_date(date_val):
-        if pd.isna(date_val) or str(date_val).strip() == '':
-            return pd.NaT
-        try:
-            return pd.to_datetime('1899-12-30') + pd.to_timedelta(int(float(date_val)), 'D')
-        except (ValueError, TypeError):
-            try:
-                return pd.to_datetime(date_val, dayfirst=True, errors='coerce')
-            except Exception:
-                return pd.NaT
-
+    # *** LÓGICA DE DATA SIMPLIFICADA ***
+    # Converte colunas de data, tratando erros. Não precisa mais da lógica complexa.
     date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
     for col in date_cols:
         if col in df.columns:
-            df[col] = df[col].apply(parse_mixed_date)
+            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
 
+    # Calcula dias de atraso de forma mais segura
     if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
         df['DIAS_DE_ATRASO'] = 0
-        pagas = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
-        df.loc[pagas, 'DIAS_DE_ATRASO'] = (df.loc[pagas, 'Data_Pagamento'] - df.loc[pagas, 'Vencimento']).dt.days
         hoje = pd.to_datetime("today").normalize()
-        em_aberto_vencidas = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
-        df.loc[em_aberto_vencidas, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas, 'Vencimento']).dt.days
+
+        # Títulos pagos
+        pagas_mask = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
+        df.loc[pagas_mask, 'DIAS_DE_ATRASO'] = (df.loc[pagas_mask, 'Data_Pagamento'] - df.loc[pagas_mask, 'Vencimento']).dt.days
+
+        # Títulos em aberto e vencidos
+        em_aberto_vencidas_mask = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
+        df.loc[em_aberto_vencidas_mask, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas_mask, 'Vencimento']).dt.days
     
     print("DADOS CARREGADOS E PROCESSADOS COM SUCESSO.")
     return df
@@ -688,7 +707,10 @@ def handle_refresh_button(n_clicks):
     print("ATUALIZAÇÃO MANUAL: Limpando o cache de dados...")
     _preparar_dataframe_com_cache.cache_clear()
     
-    return f"Dados atualizados às {datetime.now().strftime('%H:%M:%S')}. Por favor, recarregue a página."
+    # Força a recarga dos dados
+    preparar_dataframe_completo()
+
+    return f"Dados atualizados às {datetime.now().strftime('%H:%M:%S')}. A página será recarregada."
 
 if __name__ == '__main__':
     app.run(debug=True)
