@@ -1,16 +1,34 @@
-# faturamento.py (VERSÃO COM ESTILO DE KPI AJUSTADO)
+# faturamento.py (Com atalho para a tela de Desempenho)
 
 from dash import dcc, html
 
 layout = html.Div([
-    # Linha 1: Título dinâmico e Dropdown
+    # Linha 1: Título, Novo Botão de Atalho e Dropdown
     html.Div([
-        html.H1(id='titulo-pagina-faturamento', style={'textAlign': 'left', 'color': '#007bff', 'flex': '1'}),
+        html.H1(id='titulo-pagina-faturamento', style={'textAlign': 'left', 'color': '#007bff', 'flex': '1', 'margin': '0'}),
+        
+        # NOVO BOTÃO DE ATALHO
+        dcc.Link(
+            "Análise de Cliente 🔍",
+            href="/desempenho",
+            style={
+                'padding': '8px 15px',
+                'backgroundColor': '#17a2b8', # Uma cor diferente para destacar
+                'color': 'white',
+                'borderRadius': '8px',
+                'textDecoration': 'none',
+                'fontWeight': 'bold',
+                'whiteSpace': 'nowrap', # Evita que o texto quebre
+                'marginLeft': '20px'
+            }
+        ),
+        
         dcc.Dropdown(
             id='dropdown-competencia',
             options=[],
             placeholder="Selecione a competência",
-            className='dropdown-competencia'
+            className='dropdown-competencia',
+            style={'width': '250px', 'marginLeft': '20px'} # Estilo para o dropdown
         )
     ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '20px'}),
 
