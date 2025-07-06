@@ -1,7 +1,7 @@
 # app.py (VERSÃO FINAL E ROBUSTA)
 
 import dash
-from dash import Dash, dcc, html, Input, Output, State
+from dash import Dash, dcc, html, Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 import time
 import pandas as pd
@@ -92,7 +92,7 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
     if usuario == 'admin' and senha == '123':
         time.sleep(1)
         return '/menu', ""
-    return dash.no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
+    return no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
 
 # --- FUNÇÃO AUXILIAR PARA PREPARAR O DATAFRAME COMPLETO ---
 @lru_cache(maxsize=8)
@@ -165,8 +165,8 @@ def filtrar_dados_por_contexto(df, pathname):
     Input('url', 'pathname')
 )
 def popular_e_definir_competencia_inicial(pathname):
-    if not (pathname == "/faturamento" or pathname.startswith("/operacao/")):
-        raise PreventUpdate
+    if not pathname or not (pathname == "/faturamento" or pathname.startswith("/operacao/")):
+        return no_update, no_update
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return [], None
     df_contexto, _, _ = filtrar_dados_por_contexto(df_full, pathname)
@@ -197,8 +197,9 @@ def atualizar_store_competencia(selected_competence):
      Input('url', 'pathname')]
 )
 def gerar_kpis_e_cards(competencia, pathname):
-    if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
-        raise PreventUpdate
+    if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        return no_update, no_update, no_update, no_update
+    
     voltar_href = "/operacao" if pathname.startswith("/operacao/") else "/menu"
     if not competencia:
         titulo = "Visão Operacional" if pathname.startswith("/operacao/") else "Faturamento Geral"
@@ -260,10 +261,10 @@ def gerar_kpis_e_cards(competencia, pathname):
         total_e_gauge_group]
     return kpi_faturamento, cards_layout, titulo_pagina, voltar_href
 
-# Restante do código permanece o mesmo...
 @app.callback(Output('clientes-faturados-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_lista_faturas_tabela(competencia, pathname):
-    if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
+    if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
@@ -298,7 +299,8 @@ def gerar_lista_faturas_tabela(competencia, pathname):
 
 @app.callback(Output('ranking-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_ranking_armazenagem(competencia, pathname):
-    if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
+    if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
@@ -322,7 +324,8 @@ def gerar_ranking_armazenagem(competencia, pathname):
 
 @app.callback(Output('analise-avancada-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_analises_avancadas(competencia, pathname):
-    if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
+    if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
@@ -349,7 +352,8 @@ def gerar_analises_avancadas(competencia, pathname):
 
 @app.callback(Output('faturamento-diario-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_grafico_faturamento_diario(competencia, pathname):
-    if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
+    if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
@@ -370,8 +374,8 @@ def gerar_grafico_faturamento_diario(competencia, pathname):
      Input('url', 'pathname')]
 )
 def gerar_grafico_evolucao_anual(competencia, pathname):
-    if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
-        raise PreventUpdate
+    if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        return no_update
     if not competencia:
         raise PreventUpdate
     df_full = preparar_dataframe_completo()
@@ -489,7 +493,8 @@ def atualizar_projecao_recebiveis(end_date):
     Input('url', 'pathname')
 )
 def atualizar_kpis_cobranca(pathname):
-    if pathname != '/cobranca': raise PreventUpdate
+    if not pathname or pathname != '/cobranca':
+        return no_update
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return html.Div(df_full['Erro'][0])
     required_cols = ['Vencimento', 'DIAS_DE_ATRASO', 'Vlr_Titulo', 'Vlr_Recebido', 'Data_Pagamento']
@@ -534,7 +539,8 @@ def atualizar_kpis_cobranca(pathname):
     Input('url', 'pathname')
 )
 def atualizar_recebimentos_cobranca(pathname):
-    if pathname != '/cobranca': raise PreventUpdate
+    if not pathname or pathname != '/cobranca':
+        return no_update
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
     recuperados_2025 = df_full[(df_full['Vencimento'].dt.year == 2025) & (df_full['DIAS_DE_ATRASO'] > 0) & (df_full['Data_Pagamento'].notna())]
@@ -552,7 +558,8 @@ def atualizar_recebimentos_cobranca(pathname):
     Input('url', 'pathname')
 )
 def atualizar_rankings_cobranca(pathname):
-    if pathname != '/cobranca': raise PreventUpdate
+    if not pathname or pathname != '/cobranca':
+        return no_update
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
     recuperados_2025 = df_full[(df_full['Vencimento'].dt.year == 2025) & (df_full['DIAS_DE_ATRASO'] > 0) & (df_full['Data_Pagamento'].notna())].copy()
@@ -595,10 +602,11 @@ def atualizar_rankings_cobranca(pathname):
 def handle_refresh_button(n_clicks):
     if n_clicks is None or n_clicks == 0:
         raise PreventUpdate
+    
     print("ATUALIZAÇÃO MANUAL: Limpando o cache de dados...")
     _preparar_dataframe_com_cache.cache_clear()
-    preparar_dataframe_completo()
-    return f"Dados atualizados às {datetime.now().strftime('%H:%M:%S')}. A página será recarregada."
+    
+    return f"Cache limpo às {datetime.now().strftime('%H:%M:%S')}. Os dados serão recarregados na próxima navegação."
 
 if __name__ == '__main__':
     app.run(debug=True)
