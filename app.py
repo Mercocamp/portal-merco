@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL E ROBUSTA)
+# app.py (VERSÃO DEFINITIVA E SEGURA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State, no_update
@@ -25,26 +25,19 @@ server = app.server
 app.title = "Portal MercoCamp"
 
 # --- LAYOUT PRINCIPAL ---
+# REMOVIDO O dcc.Loading PARA GARANTIR ESTABILIDADE.
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     dcc.Store(id='competencia-store'),
-    dcc.Loading(
-        id="global-spinner",
-        type="default",
-        color="#007bff",
-        fullscreen=True,
-        children=html.Div(id='pagina-container')
-    )
+    html.Div(id='pagina-container') # Renderiza o conteúdo diretamente.
 ])
 
 # --- CALLBACKS ---
 
-# Callback de Roteamento (Mais organizado e robusto com if/elif/else)
+# Callback de Roteamento
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
-    # Adiciona um print nos logs para depuração
-    print(f"DEBUG: Roteador acessado com pathname: '{pathname}'")
-    
+    print(f"INFO: Roteador acessado com pathname: '{pathname}'")
     if pathname == '/menu':
         return menu.layout
     elif pathname == '/faturamento':
@@ -69,7 +62,6 @@ def display_page(pathname):
     elif pathname == '/login' or pathname == '/':
         return login.layout
     else:
-        # Se nenhum caminho corresponder, mostra uma página de erro clara
         return html.Div([
             html.H2("404: Página não encontrada"),
             html.P(f"O caminho '{pathname}' não foi reconhecido pela aplicação."),
@@ -97,46 +89,48 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
 # --- FUNÇÃO AUXILIAR PARA PREPARAR O DATAFRAME COMPLETO ---
 @lru_cache(maxsize=8)
 def _preparar_dataframe_com_cache(cache_key: str):
-    """
-    Esta é a função que realmente faz o trabalho pesado e cujo resultado é cacheado.
-    O 'cache_key' garante que ela só seja executada quando a hora mudar.
-    """
-    print(f"CACHE MISS: Gerando novos dados para a chave: {cache_key}")
-    df = carregar_dados("BaseReceber2025", "BaseReceber")
-    
-    if 'Erro' in df.columns:
+    print(f"INFO: Iniciando _preparar_dataframe_com_cache com chave: {cache_key}")
+    try:
+        df = carregar_dados("BaseReceber2025", "BaseReceber")
+        
+        if 'Erro' in df.columns:
+            return df
+
+        if 'Cliente' in df.columns and 'Clientes' not in df.columns:
+            df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
+        
+        text_cols = ['Clientes', 'Competencia', 'Tipo_Resumido', 'Lotacao']
+        for col in text_cols:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.strip()
+                if col == 'Tipo_Resumido':
+                    df[col] = df[col].str.lower()
+        
+        numeric_cols = ['Vlr_Titulo', 'Vlr_Recebido']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
+        for col in date_cols:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+
+        if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
+            df['DIAS_DE_ATRASO'] = 0
+            hoje = pd.to_datetime("today").normalize()
+            pagas_mask = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
+            df.loc[pagas_mask, 'DIAS_DE_ATRASO'] = (df.loc[pagas_mask, 'Data_Pagamento'] - df.loc[pagas_mask, 'Vencimento']).dt.days
+            em_aberto_vencidas_mask = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
+            df.loc[em_aberto_vencidas_mask, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas_mask, 'Vencimento']).dt.days
+        
+        print("INFO: Dados carregados e processados com sucesso.")
         return df
+    except Exception as e:
+        error_message = f"ERRO FATAL em _preparar_dataframe_com_cache: {e}"
+        print(error_message)
+        return pd.DataFrame({'Erro': [error_message]})
 
-    if 'Cliente' in df.columns and 'Clientes' not in df.columns:
-        df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
-    
-    text_cols = ['Clientes', 'Competencia', 'Tipo_Resumido', 'Lotacao']
-    for col in text_cols:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-            if col == 'Tipo_Resumido':
-                df[col] = df[col].str.lower()
-    
-    numeric_cols = ['Vlr_Titulo', 'Vlr_Recebido']
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-    date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
-    for col in date_cols:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
-
-    if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
-        df['DIAS_DE_ATRASO'] = 0
-        hoje = pd.to_datetime("today").normalize()
-        pagas_mask = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
-        df.loc[pagas_mask, 'DIAS_DE_ATRASO'] = (df.loc[pagas_mask, 'Data_Pagamento'] - df.loc[pagas_mask, 'Vencimento']).dt.days
-        em_aberto_vencidas_mask = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
-        df.loc[em_aberto_vencidas_mask, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas_mask, 'Vencimento']).dt.days
-    
-    print("DADOS CARREGADOS E PROCESSADOS COM SUCESSO.")
-    return df
 
 def get_cache_key():
     hora_arredondada = (datetime.now().hour // 3) * 3
@@ -165,8 +159,11 @@ def filtrar_dados_por_contexto(df, pathname):
     Input('url', 'pathname')
 )
 def popular_e_definir_competencia_inicial(pathname):
+    print(f"DEBUG: Callback 'popular_e_definir_competencia_inicial' acionado por pathname: {pathname}")
     if not pathname or not (pathname == "/faturamento" or pathname.startswith("/operacao/")):
+        print("DEBUG: ...pulando 'popular_e_definir_competencia_inicial'.")
         return no_update, no_update
+        
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return [], None
     df_contexto, _, _ = filtrar_dados_por_contexto(df_full, pathname)
@@ -197,13 +194,15 @@ def atualizar_store_competencia(selected_competence):
      Input('url', 'pathname')]
 )
 def gerar_kpis_e_cards(competencia, pathname):
+    print(f"DEBUG: Callback 'gerar_kpis_e_cards' acionado por pathname: {pathname}")
     if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        print("DEBUG: ...pulando 'gerar_kpis_e_cards'.")
         return no_update, no_update, no_update, no_update
     
     voltar_href = "/operacao" if pathname.startswith("/operacao/") else "/menu"
     if not competencia:
         titulo = "Visão Operacional" if pathname.startswith("/operacao/") else "Faturamento Geral"
-        return html.Div("Carregando dados...", style={'textAlign': 'center'}), [], titulo, voltar_href
+        return html.Div("Aguardando seleção de competência...", style={'textAlign': 'center'}), [], titulo, voltar_href
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return html.Div(df_full['Erro'][0]), [], "Erro", "/"
     df_contexto, titulo_pagina, erro_filtro = filtrar_dados_por_contexto(df_full.copy(), pathname)
@@ -261,9 +260,14 @@ def gerar_kpis_e_cards(competencia, pathname):
         total_e_gauge_group]
     return kpi_faturamento, cards_layout, titulo_pagina, voltar_href
 
+# --- O RESTANTE DOS CALLBACKS CONTINUA AQUI, COM GUARDAS SIMILARES ---
+# (O código completo está abaixo, seguindo o mesmo padrão de adicionar prints e guardas)
+
 @app.callback(Output('clientes-faturados-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_lista_faturas_tabela(competencia, pathname):
+    print(f"DEBUG: Callback 'gerar_lista_faturas_tabela' acionado por pathname: {pathname}")
     if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        print("DEBUG: ...pulando 'gerar_lista_faturas_tabela'.")
         return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
@@ -299,7 +303,9 @@ def gerar_lista_faturas_tabela(competencia, pathname):
 
 @app.callback(Output('ranking-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_ranking_armazenagem(competencia, pathname):
+    print(f"DEBUG: Callback 'gerar_ranking_armazenagem' acionado por pathname: {pathname}")
     if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        print("DEBUG: ...pulando 'gerar_ranking_armazenagem'.")
         return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
@@ -324,7 +330,9 @@ def gerar_ranking_armazenagem(competencia, pathname):
 
 @app.callback(Output('analise-avancada-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_analises_avancadas(competencia, pathname):
+    print(f"DEBUG: Callback 'gerar_analises_avancadas' acionado por pathname: {pathname}")
     if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        print("DEBUG: ...pulando 'gerar_analises_avancadas'.")
         return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
@@ -352,7 +360,9 @@ def gerar_analises_avancadas(competencia, pathname):
 
 @app.callback(Output('faturamento-diario-container', 'children'), [Input('competencia-store', 'data'), Input('url', 'pathname')])
 def gerar_grafico_faturamento_diario(competencia, pathname):
+    print(f"DEBUG: Callback 'gerar_grafico_faturamento_diario' acionado por pathname: {pathname}")
     if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        print("DEBUG: ...pulando 'gerar_grafico_faturamento_diario'.")
         return no_update
     if not competencia: raise PreventUpdate
     df_full = preparar_dataframe_completo()
@@ -374,7 +384,9 @@ def gerar_grafico_faturamento_diario(competencia, pathname):
      Input('url', 'pathname')]
 )
 def gerar_grafico_evolucao_anual(competencia, pathname):
+    print(f"DEBUG: Callback 'gerar_grafico_evolucao_anual' acionado por pathname: {pathname}")
     if not pathname or not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')):
+        print("DEBUG: ...pulando 'gerar_grafico_evolucao_anual'.")
         return no_update
     if not competencia:
         raise PreventUpdate
@@ -493,7 +505,9 @@ def atualizar_projecao_recebiveis(end_date):
     Input('url', 'pathname')
 )
 def atualizar_kpis_cobranca(pathname):
+    print(f"DEBUG: Callback 'atualizar_kpis_cobranca' acionado por pathname: {pathname}")
     if not pathname or pathname != '/cobranca':
+        print("DEBUG: ...pulando 'atualizar_kpis_cobranca'.")
         return no_update
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return html.Div(df_full['Erro'][0])
@@ -539,7 +553,9 @@ def atualizar_kpis_cobranca(pathname):
     Input('url', 'pathname')
 )
 def atualizar_recebimentos_cobranca(pathname):
+    print(f"DEBUG: Callback 'atualizar_recebimentos_cobranca' acionado por pathname: {pathname}")
     if not pathname or pathname != '/cobranca':
+        print("DEBUG: ...pulando 'atualizar_recebimentos_cobranca'.")
         return no_update
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
@@ -558,7 +574,9 @@ def atualizar_recebimentos_cobranca(pathname):
     Input('url', 'pathname')
 )
 def atualizar_rankings_cobranca(pathname):
+    print(f"DEBUG: Callback 'atualizar_rankings_cobranca' acionado por pathname: {pathname}")
     if not pathname or pathname != '/cobranca':
+        print("DEBUG: ...pulando 'atualizar_rankings_cobranca'.")
         return no_update
     df_full = preparar_dataframe_completo()
     if 'Erro' in df_full.columns: return None
@@ -603,7 +621,7 @@ def handle_refresh_button(n_clicks):
     if n_clicks is None or n_clicks == 0:
         raise PreventUpdate
     
-    print("ATUALIZAÇÃO MANUAL: Limpando o cache de dados...")
+    print("INFO: ATUALIZAÇÃO MANUAL: Limpando o cache de dados...")
     _preparar_dataframe_com_cache.cache_clear()
     
     return f"Cache limpo às {datetime.now().strftime('%H:%M:%S')}. Os dados serão recarregados na próxima navegação."
