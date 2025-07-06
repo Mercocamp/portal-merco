@@ -1,4 +1,4 @@
-# app.py (VERSÃO COMPLETA E FINAL COM CORREÇÃO DE PERFORMANCE)
+# app.py (VERSÃO OTIMIZADA FINAL)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -78,20 +78,18 @@ def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    def parse_mixed_date(date_val):
-        if pd.isna(date_val) or str(date_val).strip() == '': return pd.NaT
-        try:
-            return pd.to_datetime('1899-12-30') + pd.to_timedelta(int(float(date_val)), 'D')
-        except (ValueError, TypeError):
-            try:
-                return pd.to_datetime(date_val, dayfirst=True, errors='coerce')
-            except Exception:
-                return pd.NaT
-
+    # --- OTIMIZAÇÃO DE DATA VECTORIZADA (MUITO MAIS RÁPIDO) ---
     date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
     for col in date_cols:
         if col in df.columns:
-            df[col] = df[col].apply(parse_mixed_date)
+            # Converte a coluna para numérico, tratando não-números como NaT (Not a Time)
+            s_numeric = pd.to_numeric(df[col], errors='coerce')
+            # Converte a coluna para datetime, tratando formatos de texto inválidos como NaT
+            s_datetime = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
+            
+            # Combina os resultados: usa a conversão de data de texto se for válida,
+            # senão, usa a conversão de data numérica (formato Excel).
+            df[col] = s_datetime.fillna(pd.to_datetime('1899-12-30') + pd.to_timedelta(s_numeric, 'D'))
 
     if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
         df['DIAS_DE_ATRASO'] = 0
