@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL COM ARQUITETURA CORRIGIDA)
+# app.py (VERSÃO FINAL, COMPLETA E CORRIGIDA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -90,9 +90,9 @@ def get_full_df(): return _preparar_dataframe_com_cache(get_cache_key(True), ful
 # --- CALLBACKS GERAIS ---
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
+    print(f"Navegando para: {pathname}")
     if pathname == '/menu': 
-       print("✅ Entrando no menu. Layout carregado sem aguardar cache.")
-       return menu.layout
+        return menu.layout
     if pathname == '/faturamento': return layout_faturamento
     if pathname == '/operacao': return operacao.layout
     if pathname and pathname.startswith('/operacao/'): return layout_faturamento
