@@ -1,4 +1,4 @@
-# app.py (VERSÃO FINAL, COMPLETA E CORRIGIDA)
+# app.py (VERSÃO SIMPLIFICADA E SEM NENHUMA TRAVA)
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State
@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import plotly.graph_objects as go
 import plotly.express as px
-from functools import lru_cache
 
 # Importe os layouts e a função de carregar dados
 import login
@@ -18,8 +17,8 @@ import operacao
 from faturamento import layout as layout_faturamento
 from contas_receber import layout as layout_contas_receber
 from cobranca import layout as layout_cobranca
-from desempenho import layout as layout_desempenho # Importa o layout estático
-from sheets_api import carregar_dados
+from desempenho import layout as layout_desempenho
+from sheets_api import carregar_e_processar_dados # Importa a nova função única
 
 app = Dash(__name__, suppress_callback_exceptions=True, assets_folder='assets')
 server = app.server
@@ -32,66 +31,11 @@ app.layout = html.Div([
     dcc.Loading(id="global-spinner", type="default", color="#007bff", fullscreen=True, children=html.Div(id='pagina-container'))
 ])
 
-# --- FUNÇÕES DE PREPARAÇÃO DE DADOS ---
-@lru_cache(maxsize=8)
-def _preparar_dataframe_com_cache(cache_key: str, full_history: bool):
-    print(f"CACHE MISS: Gerando dados para a chave: {cache_key} (Histórico Completo: {full_history})")
-    df = carregar_dados("BaseReceber2025", "BaseReceber")
-    if df.empty or 'Erro' in df.columns: return df
-    
-    if not full_history:
-        hoje = pd.to_datetime("today").normalize()
-        data_limite = hoje - relativedelta(years=2)
-        s_datetime = pd.to_datetime(df['Vencimento'], errors='coerce', dayfirst=True)
-        mask_date_str = s_datetime >= data_limite
-        s_numeric = pd.to_numeric(df['Vencimento'], errors='coerce')
-        excel_date_limit = (data_limite - pd.to_datetime('1899-12-30')).days
-        mask_date_num = s_numeric >= excel_date_limit
-        final_mask = mask_date_str.fillna(False) | mask_date_num.fillna(False)
-        df = df[final_mask].copy()
-        print(f"Filtrado para os últimos 2 anos. {len(df)} linhas para processar.")
-
-    if 'Cliente' in df.columns and 'Clientes' not in df.columns: df.rename(columns={'Cliente': 'Clientes'}, inplace=True)
-    
-    text_cols = ['Clientes', 'Competencia', 'Tipo_Resumido', 'Lotacao']
-    for col in text_cols:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-            if col == 'Tipo_Resumido': df[col] = df[col].str.lower()
-            
-    numeric_cols = ['Vlr_Titulo', 'Vlr_Recebido']
-    for col in numeric_cols:
-        if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            
-    date_cols = ['Vencimento', 'Data_Pagamento', 'Emissao']
-    for col in date_cols:
-        if col in df.columns:
-            s_numeric = pd.to_numeric(df[col], errors='coerce')
-            s_datetime = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
-            df[col] = s_datetime.fillna(pd.to_datetime('1899-12-30') + pd.to_timedelta(s_numeric, 'D'))
-            
-    if 'Vencimento' in df.columns and 'Data_Pagamento' in df.columns:
-        df['DIAS_DE_ATRASO'] = 0
-        pagas = df['Data_Pagamento'].notna() & df['Vencimento'].notna()
-        df.loc[pagas, 'DIAS_DE_ATRASO'] = (df.loc[pagas, 'Data_Pagamento'] - df.loc[pagas, 'Vencimento']).dt.days
-        hoje = pd.to_datetime("today").normalize()
-        em_aberto_vencidas = df['Data_Pagamento'].isna() & (df['Vencimento'] < hoje)
-        df.loc[em_aberto_vencidas, 'DIAS_DE_ATRASO'] = (hoje - df.loc[em_aberto_vencidas, 'Vencimento']).dt.days
-        
-    print(f"DADOS PROCESSADOS COM SUCESSO. {len(df)} linhas.")
-    return df
-
-def get_cache_key(full_history: bool):
-    hora_arredondada = datetime.now().hour
-    return f"{datetime.now().strftime('%Y-%m-%d')}-{hora_arredondada}-full:{full_history}"
-def get_recent_df(): return _preparar_dataframe_com_cache(get_cache_key(False), full_history=False)
-def get_full_df(): return _preparar_dataframe_com_cache(get_cache_key(True), full_history=True)
-
 # --- CALLBACKS GERAIS ---
 @app.callback(Output('pagina-container', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
     print(f"Navegando para: {pathname}")
-    # CORREÇÃO ARQUITETURAL: Apenas retorna o layout estático. Nenhum dado é carregado aqui.
+    # Apenas retorna o layout estático. Nenhum dado é carregado aqui.
     if pathname == '/menu': return menu.layout
     if pathname == '/faturamento': return layout_faturamento
     if pathname == '/operacao': return operacao.layout
@@ -118,13 +62,10 @@ def fazer_login(n_clicks_btn, n_submit_senha, usuario, senha):
     return dash.no_update, html.P("Usuário ou Senha incorreta", style={'color': 'red'})
 
 @app.callback(Output('refresh-status', 'children'), Input('btn-refresh-cache', 'n_clicks'), prevent_initial_call=True)
-def atualizar_cache(n_clicks):
-    try:
-        _preparar_dataframe_com_cache.cache_clear()
-        get_recent_df()
-        return f"✅ Cache atualizado: {datetime.now().strftime('%H:%M:%S')}."
-    except Exception as e:
-        return f"❌ Erro ao atualizar: {str(e)}"
+def atualizar_dados_manualmente(n_clicks):
+    # Este botão não precisa mais limpar cache, apenas informa o usuário.
+    # Os dados já são carregados frescos em cada página.
+    return f"Dados são carregados ao vivo. Atualizado às: {datetime.now().strftime('%H:%M:%S')}."
 
 def filtrar_dados_por_contexto(df, pathname):
     if df.empty: return df, "Faturamento Geral", None
@@ -143,9 +84,9 @@ def filtrar_dados_por_contexto(df, pathname):
     Input('url', 'pathname'))
 def popular_e_definir_competencia_inicial(pathname):
     if not (pathname == "/faturamento" or pathname.startswith("/operacao/")): raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return [], None
-    df_contexto, _, _ = filtrar_dados_por_contexto(df_view, pathname)
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return [], None
+    df_contexto, _, _ = filtrar_dados_por_contexto(df, pathname)
     if 'Competencia' not in df_contexto.columns: return [], None
     try:
         competencias = df_contexto['Competencia'].dropna().unique()
@@ -169,9 +110,9 @@ def gerar_kpis_e_cards(competencia, pathname):
     if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
     voltar_href = "/operacao" if pathname.startswith("/operacao/") else "/menu"
     if not competencia: return html.Div("Selecione uma competência.", style={'textAlign': 'center'}), [], "Faturamento", voltar_href
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados."), [], "Erro", voltar_href
-    df_contexto, titulo_pagina, erro_filtro = filtrar_dados_por_contexto(df_view, pathname)
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados."), [], "Erro", voltar_href
+    df_contexto, titulo_pagina, erro_filtro = filtrar_dados_por_contexto(df, pathname)
     if erro_filtro: return erro_filtro, [], titulo_pagina, voltar_href
     try:
         current_date = datetime.strptime(f"01/{competencia}", "%d/%m/%Y")
@@ -219,11 +160,9 @@ def gerar_kpis_e_cards(competencia, pathname):
 def gerar_lista_faturas_tabela(competencia, pathname):
     if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
     if not competencia: raise PreventUpdate
-    df_view = get_recent_df()
-    df_full = get_full_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados recentes.")
-    if df_full.empty or 'Erro' in df_full.columns: return html.Div("Erro ao carregar histórico completo para cálculo de score.")
-    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df_view, pathname)
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados.")
+    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df, pathname)
     if erro_filtro: return erro_filtro
     def calcular_score(df_cliente_historico, data_referencia_hoje):
         historico = df_cliente_historico[(df_cliente_historico['Vencimento'].notna()) & (df_cliente_historico['Vencimento'] >= (data_referencia_hoje - relativedelta(months=6))) & (df_cliente_historico['Vencimento'] < data_referencia_hoje)]
@@ -246,7 +185,7 @@ def gerar_lista_faturas_tabela(competencia, pathname):
     df_competencia = df_contexto[df_contexto['Competencia'] == competencia].copy()
     if df_competencia.empty: return html.Div("Nenhuma fatura emitida nesta competência.", style={'textAlign': 'center', 'padding': '20px'})
     df_competencia = df_competencia.sort_values(by='Vlr_Titulo', ascending=False)
-    scores = {nome: calcular_score(df_full[df_full['Clientes'] == nome], datetime.today()) for nome in df_competencia['Clientes'].unique()}
+    scores = {nome: calcular_score(df[df['Clientes'] == nome], datetime.today()) for nome in df_competencia['Clientes'].unique()}
     df_competencia['Score'] = df_competencia['Clientes'].map(scores)
     header = html.Div([html.Div("Cliente", style={'flex': '3', 'fontWeight': 'bold'}), html.Div("Vencimento", style={'flex': '1.5', 'fontWeight': 'bold', 'textAlign': 'center'}), html.Div("Fatura", style={'flex': '1.5', 'fontWeight': 'bold', 'textAlign': 'right'}), html.Div("Score", style={'flex': '1.5', 'fontWeight': 'bold', 'textAlign': 'right'})], style={'display': 'flex', 'padding': '10px 15px', 'borderBottom': '2px solid #333', 'backgroundColor': '#f8f9fa'})
     rows = [html.Div([html.Div(row['Clientes'], style={'flex': '3'}), html.Div(row['Vencimento'].strftime('%d/%m/%Y') if pd.notna(row['Vencimento']) else '-', style={'flex': '1.5', 'textAlign': 'center'}), html.Div(f"R$ {row['Vlr_Titulo']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), style={'flex': '1.5', 'textAlign': 'right', 'color': '#007bff'}), html.Div(get_score_visual(row['Score']), style={'flex': '1.5', 'textAlign': 'right'})], style={'display': 'flex', 'padding': '15px', 'borderBottom': '1px solid #eee', 'alignItems': 'center'}) for _, row in df_competencia.iterrows()]
@@ -256,9 +195,9 @@ def gerar_lista_faturas_tabela(competencia, pathname):
 def gerar_ranking_armazenagem(competencia, pathname):
     if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
     if not competencia: raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados.")
-    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df_view, pathname)
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados.")
+    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df, pathname)
     if erro_filtro: return erro_filtro
     df_armazenagem = df_contexto[(df_contexto['Competencia'] == competencia) & (df_contexto['Tipo_Resumido'] == 'armazenagem')]
     if df_armazenagem.empty: return html.H5("Nenhum faturamento de armazenagem nesta competência.", style={'textAlign': 'center', 'marginTop': '20px'})
@@ -276,9 +215,9 @@ def gerar_ranking_armazenagem(competencia, pathname):
 def gerar_analises_avancadas(competencia, pathname):
     if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
     if not competencia: raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return None
-    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df_view, pathname)
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return None
+    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df, pathname)
     if erro_filtro: return erro_filtro
     df_competencia = df_contexto[df_contexto['Competencia'] == competencia]
     if df_competencia.empty: return None
@@ -303,9 +242,9 @@ def gerar_analises_avancadas(competencia, pathname):
 def gerar_grafico_faturamento_diario(competencia, pathname):
     if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
     if not competencia: raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return None
-    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df_view, pathname)
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return None
+    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df, pathname)
     if erro_filtro: return erro_filtro
     df_competencia = df_contexto[df_contexto['Competencia'] == competencia]
     if df_competencia.empty: return None
@@ -318,9 +257,9 @@ def gerar_grafico_faturamento_diario(competencia, pathname):
 def gerar_grafico_evolucao_anual(competencia, pathname):
     if not (pathname.startswith('/faturamento') or pathname.startswith('/operacao/')): raise PreventUpdate
     if not competencia: raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return None
-    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df_view, pathname)
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return None
+    df_contexto, _, erro_filtro = filtrar_dados_por_contexto(df, pathname)
     if erro_filtro: return erro_filtro
     try:
         ano_selecionado = int(competencia.split('/')[1])
@@ -345,11 +284,11 @@ def gerar_grafico_evolucao_anual(competencia, pathname):
 @app.callback(Output('recebimentos-container', 'children'), [Input('filtro-data-recebimento', 'start_date'), Input('filtro-data-recebimento', 'end_date')])
 def atualizar_recebimentos(start_date, end_date):
     if not start_date or not end_date: raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados.")
-    if 'Data_Pagamento' not in df_view.columns or 'Vlr_Recebido' not in df_view.columns: return html.Div("As colunas 'Data_Pagamento' ou 'Vlr_Recebido' não foram encontradas.", style={'color': 'red'})
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados.")
+    if 'Data_Pagamento' not in df.columns or 'Vlr_Recebido' not in df.columns: return html.Div("As colunas 'Data_Pagamento' ou 'Vlr_Recebido' não foram encontradas.", style={'color': 'red'})
     start_date_dt, end_date_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
-    df_recebido_periodo = df_view[(df_view['Data_Pagamento'] >= start_date_dt) & (df_view['Data_Pagamento'] <= end_date_dt)]
+    df_recebido_periodo = df[(df['Data_Pagamento'] >= start_date_dt) & (df['Data_Pagamento'] <= end_date_dt)]
     total_recebido = df_recebido_periodo['Vlr_Recebido'].sum()
     recebimentos_diarios = df_recebido_periodo.groupby(df_recebido_periodo['Data_Pagamento'].dt.date)['Vlr_Recebido'].sum()
     fig = go.Figure(go.Bar(x=recebimentos_diarios.index, y=recebimentos_diarios.values, text=recebimentos_diarios.values, texttemplate='R$ %{y:,.2f}', textposition='outside'))
@@ -360,13 +299,12 @@ def atualizar_recebimentos(start_date, end_date):
 @app.callback(Output('projecao-recebiveis-container', 'children'), Input('filtro-data-recebimento', 'end_date'))
 def atualizar_projecao_recebiveis(end_date):
     if not end_date: raise PreventUpdate
-    df_view = get_recent_df()
-    df_full = get_full_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados.")
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados.")
     hoje = pd.to_datetime('today').normalize()
-    df_futuro = df_view[(df_view['Vencimento'] > hoje) & (df_view['Data_Pagamento'].isna())].copy()
-    df_full['Adiantou'] = (df_full['Vencimento'] - df_full['Data_Pagamento']).dt.days > 5
-    clientes_adiantam = df_full[df_full['Adiantou']]['Clientes'].unique()
+    df_futuro = df[(df['Vencimento'] > hoje) & (df['Data_Pagamento'].isna())].copy()
+    df['Adiantou'] = (df['Vencimento'] - df['Data_Pagamento']).dt.days > 5
+    clientes_adiantam = df[df['Adiantou']]['Clientes'].unique()
     df_futuro['Bom_Pagador'] = df_futuro['Clientes'].isin(clientes_adiantam)
     def calcular_score(df_cliente, data_referencia_hoje):
         historico = df_cliente[(df_cliente['Vencimento'].notna()) & (df_cliente['Vencimento'] >= (data_referencia_hoje - relativedelta(months=6))) & (df_cliente['Vencimento'] < data_referencia_hoje)]
@@ -382,7 +320,7 @@ def atualizar_projecao_recebiveis(end_date):
         if score >= 800: return score, "Bom"
         if score >= 600: return score, "Atenção"
         return score, "Crítico"
-    scores = {nome: calcular_score(df_full[df_full['Clientes'] == nome], hoje) for nome in df_futuro['Clientes'].unique()}
+    scores = {nome: calcular_score(df[df['Clientes'] == nome], hoje) for nome in df_futuro['Clientes'].unique()}
     df_futuro['Score_Valor'] = df_futuro['Clientes'].map(lambda x: scores.get(x, (0, ''))[0])
     df_futuro['Score_Categoria'] = df_futuro['Clientes'].map(lambda x: scores.get(x, (0, ''))[1])
     proximos_30_dias = df_futuro[df_futuro['Vencimento'] <= hoje + timedelta(days=30)].sort_values(by='Vencimento')
@@ -392,7 +330,7 @@ def atualizar_projecao_recebiveis(end_date):
         cor_score = {"Excelente": "#28a745", "Bom": "#198754", "Atenção": "#ffc107", "Crítico": "#dc3545"}.get(row['Score_Categoria'], 'grey')
         rows.append(html.Tr([html.Td(row['Vencimento'].strftime('%d/%m/%Y')), html.Td(row['Clientes']), html.Td(f"R$ {row['Vlr_Titulo']:,.2f}"), html.Td(html.Span(f"{row['Score_Categoria']} ({row['Score_Valor']})", style={'color': cor_score, 'fontWeight': 'bold'})), html.Td("✅ Sim" if row['Bom_Pagador'] else "Não", style={'textAlign': 'center'})]))
     tabela_vencimentos = html.Table([header, html.Tbody(rows)], className="table table-striped")
-    df_historico = df_full[df_full['Data_Pagamento'].notna()]
+    df_historico = df[df['Data_Pagamento'].notna()]
     media_mensal_recebida = df_historico.groupby(df_historico['Data_Pagamento'].dt.to_period('M'))['Vlr_Recebido'].sum().mean()
     projecao_card = html.Div([html.H4("Projeção Histórica"), html.P("Média mensal recebida nos últimos meses:"), html.P(f"R$ {media_mensal_recebida:,.2f}", style={'fontSize': 22, 'fontWeight': 'bold'})], style={'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '10px', 'textAlign': 'center'})
     return html.Div([html.H2("Projeção de Recebíveis Futuros", style={'textAlign': 'center', 'marginTop': '40px'}), html.Div([html.Div([html.H4("Próximos 30 Dias a Vencer"), tabela_vencimentos], style={'flex': 3, 'paddingRight': '20px'}), html.Div(projecao_card, style={'flex': 1})], style={'display': 'flex'})])
@@ -401,12 +339,12 @@ def atualizar_projecao_recebiveis(end_date):
 @app.callback(Output('cobranca-container', 'children'), Input('url', 'pathname'))
 def atualizar_kpis_cobranca(pathname):
     if pathname != '/cobranca': raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados.")
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados.")
     required_cols = ['Vencimento', 'DIAS_DE_ATRASO', 'Vlr_Titulo', 'Vlr_Recebido', 'Data_Pagamento']
     for col in required_cols:
-        if col not in df_view.columns: return html.Div(f"Erro: A coluna '{col}' é essencial e não foi encontrada.", style={'color': 'red', 'textAlign': 'center'})
-    df_2025 = df_view[df_view['Vencimento'].dt.year == 2025].copy()
+        if col not in df.columns: return html.Div(f"Erro: A coluna '{col}' é essencial e não foi encontrada.", style={'color': 'red', 'textAlign': 'center'})
+    df_2025 = df[df['Vencimento'].dt.year == 2025].copy()
     portfolio_2025 = df_2025[df_2025['DIAS_DE_ATRASO'] > 0]
     total_devido_2025 = portfolio_2025['Vlr_Titulo'].sum()
     recuperado_2025_df = portfolio_2025[portfolio_2025['Data_Pagamento'].notna()]
@@ -415,7 +353,7 @@ def atualizar_kpis_cobranca(pathname):
     juros_df = recuperado_2025_df[recuperado_2025_df['Vlr_Recebido'] > recuperado_2025_df['Vlr_Titulo']].copy()
     juros_df['Juros'] = juros_df['Vlr_Recebido'] - juros_df['Vlr_Titulo']
     juros_2025 = juros_df['Juros'].sum()
-    df_2024 = df_view[df_view['Vencimento'].dt.year == 2024].copy()
+    df_2024 = df[df['Vencimento'].dt.year == 2024].copy()
     portfolio_2024 = df_2024[df_2024['DIAS_DE_ATRASO'] > 0]
     total_devido_2024 = portfolio_2024['Vlr_Titulo'].sum()
     total_recuperado_2024 = portfolio_2024[portfolio_2024['Data_Pagamento'].notna()]['Vlr_Recebido'].sum()
@@ -430,9 +368,9 @@ def atualizar_kpis_cobranca(pathname):
 @app.callback(Output('cobranca-recebimentos-diarios-container', 'children'), Input('url', 'pathname'))
 def atualizar_recebimentos_cobranca(pathname):
     if pathname != '/cobranca': raise PreventUpdate
-    df_view = get_recent_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados.")
-    recuperados_2025 = df_view[(df_view['Vencimento'].dt.year == 2025) & (df_view['DIAS_DE_ATRASO'] > 0) & (df_view['Data_Pagamento'].notna())]
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados.")
+    recuperados_2025 = df[(df['Vencimento'].dt.year == 2025) & (df['DIAS_DE_ATRASO'] > 0) & (df['Data_Pagamento'].notna())]
     if recuperados_2025.empty: return html.H5("Nenhum título vencido recuperado em 2025.", style={'textAlign': 'center'})
     recebimentos_diarios = recuperados_2025.groupby(recuperados_2025['Data_Pagamento'].dt.date)['Vlr_Recebido'].sum()
     fig = go.Figure(go.Bar(x=recebimentos_diarios.index, y=recebimentos_diarios.values, text=recebimentos_diarios.values, texttemplate='R$ %{y:,.2f}', textposition='outside'))
@@ -442,14 +380,13 @@ def atualizar_recebimentos_cobranca(pathname):
 @app.callback(Output('cobranca-rankings-container', 'children'), Input('url', 'pathname'))
 def atualizar_rankings_cobranca(pathname):
     if pathname != '/cobranca': raise PreventUpdate
-    df_view = get_recent_df()
-    df_full = get_full_df()
-    if df_view.empty or 'Erro' in df_view.columns: return html.Div("Erro ao carregar dados.")
-    recuperados_2025 = df_view[(df_view['Vencimento'].dt.year == 2025) & (df_view['DIAS_DE_ATRASO'] > 0) & (df_view['Data_Pagamento'].notna())].copy()
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns: return html.Div("Erro ao carregar dados.")
+    recuperados_2025 = df[(df['Vencimento'].dt.year == 2025) & (df['DIAS_DE_ATRASO'] > 0) & (df['Data_Pagamento'].notna())].copy()
     if recuperados_2025.empty: return None
     top_10_antigos = recuperados_2025.sort_values(by='Vencimento', ascending=True).head(10)
     top_10_valores = recuperados_2025.sort_values(by='Vlr_Recebido', ascending=False).head(10)
-    df_pagos_atrasados = df_full[(df_full['Data_Pagamento'].notna()) & (df_full['DIAS_DE_ATRASO'] > 0)]
+    df_pagos_atrasados = df[(df['Data_Pagamento'].notna()) & (df['DIAS_DE_ATRASO'] > 0)]
     campeoes_atraso = df_pagos_atrasados.groupby('Clientes')['DIAS_DE_ATRASO'].mean().reset_index().sort_values(by='DIAS_DE_ATRASO', ascending=False).head(10)
     def criar_tabela_ranking(titulo, df, colunas_map):
         header = [html.Th(col) for col in colunas_map.keys()]
@@ -465,7 +402,7 @@ def atualizar_rankings_cobranca(pathname):
     tabela_campeoes = criar_tabela_ranking("Top 10 Clientes com Maior Média de Atraso", campeoes_atraso, {"Cliente": ("Clientes", lambda x: x), "Média de Atraso": ("DIAS_DE_ATRASO", lambda x: f"{x:.0f} dias")})
     return html.Div([html.H3("Rankings de Recuperação (2025)", style={'textAlign': 'center', 'marginTop': '40px'}), html.Div([tabela_antigos, tabela_valores, tabela_campeoes], style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'})])
 
-# --- CALLBACKS DE DESEMPENHO (COM ARQUITETURA ASSÍNCRONA) ---
+# --- CALLBACKS DE DESEMPENHO ---
 @app.callback(
     Output('desempenho-content-wrapper', 'children'),
     Input('url', 'pathname')
@@ -474,14 +411,14 @@ def load_desempenho_interactive_layout(pathname):
     if pathname != '/desempenho':
         raise PreventUpdate
 
-    df_full = get_full_df()
-    if df_full.empty or 'Erro' in df_full.columns:
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns:
         return html.Div([
-            html.H4("❌ Erro ao Carregar Dados Completos", style={'color': 'red'}),
-            html.P("Não foi possível carregar o histórico completo. Verifique a conexão com o Google Sheets ou tente atualizar o cache no menu.")
+            html.H4("❌ Erro ao Carregar Dados", style={'color': 'red'}),
+            html.P(f"Detalhes: {df['Erro'].iloc[0] if 'Erro' in df.columns else 'Não foi possível carregar os dados.'}")
         ], style={'textAlign': 'center', 'padding': '20px'})
         
-    clientes_options = sorted(df_full['Clientes'].dropna().unique())
+    clientes_options = sorted(df['Clientes'].dropna().unique())
     
     return html.Div([
         html.Div([
@@ -510,14 +447,11 @@ def atualizar_desempenho_cliente(n_clicks, cliente_selecionado):
     if not cliente_selecionado:
         return html.P("Selecione um cliente e clique em buscar para ver os resultados.", style={'textAlign': 'center'})
 
-    df_full = get_full_df()
-    if df_full.empty or 'Erro' in df_full.columns:
-        return html.Div([
-            html.H4("❌ Erro ao Carregar Dados Completos", style={'color': 'red'}),
-            html.P("Não foi possível carregar o histórico completo.")
-        ], style={'textAlign': 'center', 'padding': '20px'})
+    df = carregar_e_processar_dados()
+    if df.empty or 'Erro' in df.columns:
+        return html.Div([html.H4("❌ Erro ao Carregar Dados", style={'color': 'red'})], style={'textAlign': 'center', 'padding': '20px'})
 
-    df_cliente = df_full[df_full['Clientes'] == cliente_selecionado].copy()
+    df_cliente = df[df['Clientes'] == cliente_selecionado].copy()
 
     if df_cliente.empty:
         return html.P(f"Nenhum dado encontrado para o cliente: {cliente_selecionado}", style={'textAlign': 'center'})
